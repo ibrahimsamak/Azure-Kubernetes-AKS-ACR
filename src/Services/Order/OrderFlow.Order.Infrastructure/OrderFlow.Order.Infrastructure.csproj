@@ -6,6 +6,10 @@
     <ProjectReference Include="..\..\..\BuildingBlocks\OrderFlow.Grpc.Contracts\OrderFlow.Grpc.Contracts.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Aspire.Microsoft.EntityFrameworkCore.SqlServer" Version="13.5.3" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
