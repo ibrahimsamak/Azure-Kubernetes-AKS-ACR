@@ -1,0 +1,34 @@
+<Solution>
+  <Folder Name="/Aspire/">
+    <Project Path="src/Aspire/OrderFlow.AppHost/OrderFlow.AppHost.csproj" />
+  </Folder>
+  <Folder Name="/BuildingBlocks/">
+    <Project Path="src/BuildingBlocks/OrderFlow.Contracts/OrderFlow.Contracts.csproj" />
+    <Project Path="src/BuildingBlocks/OrderFlow.Grpc.Contracts/OrderFlow.Grpc.Contracts.csproj" />
+    <Project Path="src/BuildingBlocks/OrderFlow.Messaging.RabbitMq/OrderFlow.Messaging.RabbitMq.csproj" />
+    <Project Path="src/BuildingBlocks/OrderFlow.Messaging/OrderFlow.Messaging.csproj" />
+    <Project Path="src/BuildingBlocks/OrderFlow.ServiceDefaults/OrderFlow.ServiceDefaults.csproj" />
+  </Folder>
+  <Folder Name="/Services/" />
+  <Folder Name="/Services/Inventory/">
+    <Project Path="src/Services/Inventory/OrderFlow.Inventory.Api/OrderFlow.Inventory.Api.csproj" />
+  </Folder>
+  <Folder Name="/Services/Notification/">
+    <Project Path="src/Services/Notification/OrderFlow.Notification.Api/OrderFlow.Notification.Api.csproj" />
+  </Folder>
+  <Folder Name="/Services/Order/">
+    <Project Path="src/Services/Order/OrderFlow.Order.Api/OrderFlow.Order.Api.csproj" />
+    <Project Path="src/Services/Order/OrderFlow.Order.Application/OrderFlow.Order.Application.csproj" />
+    <Project Path="src/Services/Order/OrderFlow.Order.Domain/OrderFlow.Order.Domain.csproj" />
+    <Project Path="src/Services/Order/OrderFlow.Order.Infrastructure/OrderFlow.Order.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/Services/Payment/">
+    <Project Path="src/Services/Payment/OrderFlow.Payment.Api/OrderFlow.Payment.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/OrderFlow.ContractTests/OrderFlow.ContractTests.csproj" />
+    <Project Path="tests/OrderFlow.IntegrationTests/OrderFlow.IntegrationTests.csproj" />
+    <Project Path="tests/OrderFlow.Messaging.UnitTests/OrderFlow.Messaging.UnitTests.csproj" />
+    <Project Path="tests/OrderFlow.Order.UnitTests/OrderFlow.Order.UnitTests.csproj" />
+  </Folder>
+</Solution>

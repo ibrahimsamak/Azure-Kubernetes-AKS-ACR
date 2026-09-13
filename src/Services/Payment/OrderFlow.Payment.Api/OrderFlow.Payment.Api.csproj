@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.7" />
+    <!-- Pinned above the transitive 2.0.0: TreatWarningsAsErrors turns NU1903 (known
+         vulnerability) into a build error, which is exactly what we want it to do. -->
+    <PackageReference Include="Microsoft.OpenApi" Version="2.12.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\BuildingBlocks\OrderFlow.Messaging\OrderFlow.Messaging.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\OrderFlow.ServiceDefaults\OrderFlow.ServiceDefaults.csproj" />
+  </ItemGroup>
+
+</Project>

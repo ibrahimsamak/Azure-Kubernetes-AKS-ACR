@@ -1,0 +1,19 @@
+root = true
+
+[*.cs]
+indent_style = space
+indent_size = 4
+dotnet_sort_system_directives_first = true
+csharp_style_namespace_declarations = file_scoped:error
+dotnet_style_readonly_field = true:warning
+csharp_prefer_braces = true:warning
+dotnet_diagnostic.CA2007.severity = none   # no ConfigureAwait ceremony in app code
+dotnet_diagnostic.IDE0005.severity = error # remove unnecessary usings
+
+[*.{csproj,props,targets}]
+indent_style = space
+indent_size = 2
+
+[*.{yml,yaml,json,proto}]
+indent_style = space
+indent_size = 2
