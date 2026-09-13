@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.7" />
+
+    <PackageReference Include="Microsoft.OpenApi" Version="2.12.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\BuildingBlocks\OrderFlow.Messaging\OrderFlow.Messaging.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\OrderFlow.ServiceDefaults\OrderFlow.ServiceDefaults.csproj" />
+  </ItemGroup>
+
+</Project>
