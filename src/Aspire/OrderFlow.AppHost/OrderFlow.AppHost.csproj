@@ -7,6 +7,13 @@
     <ProjectReference Include="..\..\Services\Notification\OrderFlow.Notification.Api\OrderFlow.Notification.Api.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.Kafka" Version="13.5.3" />
+    <PackageReference Include="Aspire.Hosting.RabbitMQ" Version="13.5.3" />
+    <PackageReference Include="Aspire.Hosting.Redis" Version="13.5.3" />
+    <PackageReference Include="Aspire.Hosting.SqlServer" Version="13.5.3" />
+  </ItemGroup>
+
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
