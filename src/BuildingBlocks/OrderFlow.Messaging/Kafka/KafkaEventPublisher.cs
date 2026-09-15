@@ -16,6 +16,7 @@ public sealed partial class KafkaEventPublisher : IEventPublisher, IDisposable
     public static readonly ActivitySource ActivitySource = new("OrderFlow.Messeging");
     private readonly IProducer<string, string> _producer;
     private readonly ILogger<KafkaEventPublisher> _logger;
+    private int _disposed;
 
 
     public KafkaEventPublisher(IOptions<KafkaOptions> options, ILogger<KafkaEventPublisher> logger)
@@ -103,6 +104,9 @@ public sealed partial class KafkaEventPublisher : IEventPublisher, IDisposable
 
     public void Dispose()
     {
+        // IDisposable must tolerate repeated calls; Flush on a closed handle throws.
+        if (Interlocked.Exchange(ref _disposed, 1) == 1) { return; }
+
         // Flush before exit or buffered messages die with the process.
         _producer.Flush(TimeSpan.FromSeconds(10));
         _producer.Dispose();
