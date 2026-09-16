@@ -2,6 +2,7 @@ using OrderFlow.Contracts;
 using OrderFlow.Contracts.Orders;
 using OrderFlow.Order.Domain.Common;
 using OrderFlow.Order.Domain.Orders.Events;
+using OrderFlow.Order.Domain.Sagas.Events;
 
 namespace OrderFlow.Order.Application.EventMapping;
 
@@ -31,6 +32,14 @@ public static class DomainToIntegrationEvent
             CustomerId = e.CustomerId,
             Reason = e.Reason,
             PaymentWasCaptured = e.PaymentWasCaptured,
+            CorrelationId = e.OrderId
+        },
+
+        OrderSagaStuckDomainEvent e => new OrderSagaStuck
+        {
+            OrderId = e.OrderId,
+            State = e.State,
+            FailureReason = e.FailureReason,
             CorrelationId = e.OrderId
         },
 

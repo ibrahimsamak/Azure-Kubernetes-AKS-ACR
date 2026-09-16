@@ -1,5 +1,7 @@
 namespace OrderFlow.Messaging.Dispatch;
 
+using System.Reflection;
+using System.Runtime.ExceptionServices;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -31,34 +33,49 @@ public sealed partial class IntegrationEventDispatcher(
             return;
         }
 
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var strategy = db.Database.CreateExecutionStrategy();
 
-        var inbox = new EfInboxStore<DbContext>(db, consumerName);
-        inbox.Claim(@event.MessageId, envelope.Type);
-
-        try
+        await strategy.ExecuteAsync(async () =>
         {
-            foreach (var handler in handlers)
+            db.ChangeTracker.Clear();
+
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
+
+            var inbox = new EfInboxStore<DbContext>(db, consumerName);
+            inbox.Claim(@event.MessageId, envelope.Type);
+
+            try
             {
-                var method = handlerType.GetMethod(nameof(IIntegrationEventHandler<IntegrationEvent>.HandleAsync))!;
-                await (Task)method.Invoke(handler, [@event, ct])!;
+                foreach (var handler in handlers)
+                {
+                    var method = handlerType.GetMethod(nameof(IIntegrationEventHandler<IntegrationEvent>.HandleAsync))!;
+
+                    try
+                    {
+                        await (Task)method.Invoke(handler, [@event, ct])!;
+                    }
+                    catch (TargetInvocationException ex) when (ex.InnerException is not null)
+                    {
+                        ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
+                    }
+                }
+
+                await db.SaveChangesAsync(ct);
+                await tx.CommitAsync(ct);
+
+                LogHandled(logger, envelope.Type, @event.MessageId, @event.CorrelationId);
             }
-
-            await db.SaveChangesAsync(ct);
-            await tx.CommitAsync(ct);
-
-            LogHandled(logger, envelope.Type, @event.MessageId, @event.CorrelationId);
-        }
-        catch (DbUpdateException ex) when (InboxDuplicateDetector.IsDuplicate(ex))
-        {
-            await tx.RollbackAsync(ct);
-            LogDuplicateIgnored(logger, envelope.Type, @event.MessageId, consumerName);
-        }
-        catch
-        {
-            await tx.RollbackAsync(ct);
-            throw;
-        }
+            catch (DbUpdateException ex) when (InboxDuplicateDetector.IsDuplicate(ex))
+            {
+                await tx.RollbackAsync(ct);
+                LogDuplicateIgnored(logger, envelope.Type, @event.MessageId, consumerName);
+            }
+            catch
+            {
+                await tx.RollbackAsync(ct);
+                throw;
+            }
+        });
     }
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Ignoring unknown event type {Type}.")]

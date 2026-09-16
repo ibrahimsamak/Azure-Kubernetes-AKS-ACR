@@ -25,12 +25,29 @@ public sealed partial class StockReservedHandler(IOrderSagaRepository sagas, ILo
     private static partial void LogNoSaga(ILogger logger, Guid orderId);
 }
 
-public sealed class StockReservationFailedHandler(IOrderSagaRepository sagas) : IIntegrationEventHandler<StockReservationFailed>
+public sealed class StockReservationFailedHandler(IOrderSagaRepository sagas, IOrderRepository orders)
+    : IIntegrationEventHandler<StockReservationFailed>
 {
     public async Task HandleAsync(StockReservationFailed e, CancellationToken ct)
     {
+        ArgumentNullException.ThrowIfNull(e);
+
         var saga = await sagas.GetAsync(e.OrderId, ct);
-        saga?.Fail($"Stock unavailable for {e.Sku}: {e.Reason}");
+        if (saga is null) { return; }
+
+        saga.Fail($"Stock unavailable for {e.Sku}: {e.Reason}");
+        await SagaCompensation.AnnounceAsync(saga, orders, ct);
+    }
+}
+
+internal static class SagaCompensation
+{
+    public static async Task AnnounceAsync(OrderSaga saga, IOrderRepository orders, CancellationToken ct)
+    {
+        if (saga.State != OrderSagaState.Compensating) { return; }
+
+        var order = await orders.GetByIdAsync(saga.Id, ct);
+        order?.Cancel(saga.FailureReason ?? "Saga failed.", saga.PaymentWasCaptured);
     }
 }
 
@@ -49,11 +66,16 @@ public sealed class PaymentCapturedHandler(IOrderSagaRepository sagas, IOrderRep
     }
 }
 
-public sealed partial class PaymentFailedHandler(IOrderSagaRepository sagas, ILogger<PaymentFailedHandler> logger)
+public sealed partial class PaymentFailedHandler(
+    IOrderSagaRepository sagas,
+    IOrderRepository orders,
+    ILogger<PaymentFailedHandler> logger)
     : IIntegrationEventHandler<PaymentFailed>
 {
     public async Task HandleAsync(PaymentFailed e, CancellationToken ct)
     {
+        ArgumentNullException.ThrowIfNull(e);
+
         var saga = await sagas.GetAsync(e.OrderId, ct);
         if (saga is null) { return; }
 
@@ -64,6 +86,7 @@ public sealed partial class PaymentFailedHandler(IOrderSagaRepository sagas, ILo
         }
 
         saga.Fail($"Payment declined: {e.Reason}");
+        await SagaCompensation.AnnounceAsync(saga, orders, ct);
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Retryable payment failure for {OrderId}: {Reason}")]

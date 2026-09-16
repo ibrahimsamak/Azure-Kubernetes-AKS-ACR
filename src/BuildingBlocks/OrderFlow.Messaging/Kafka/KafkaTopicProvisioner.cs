@@ -36,7 +36,8 @@ public sealed partial class KafkaTopicProvisioner(
             var topicNames = specs.ConvertAll(s => s.Name);
             LogProvisioned(logger, topicNames);
         }
-        catch (CreateTopicsException ex) when (ex.Results.All(r => r.Error.Code is ErrorCode.TopicAlreadyExists))
+        catch (CreateTopicsException ex) when (
+            ex.Results.All(r => r.Error.Code is ErrorCode.NoError or ErrorCode.TopicAlreadyExists))
         {
             LogTopicsAlreadyExist(logger);
         }

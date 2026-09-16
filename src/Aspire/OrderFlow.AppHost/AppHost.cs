@@ -14,8 +14,6 @@ var inventoryDb = sql.AddDatabase("orderflow-inventory");
 var paymentsDb = sql.AddDatabase("orderflow-payments");
 var notificationsDb = sql.AddDatabase("orderflow-notifications");
 
-var redis = builder.AddRedis("redis");
-
 var inventory = builder.AddProject<Projects.OrderFlow_Inventory_Api>("inventory")
     .WithReference(kafka).WaitFor(kafka)
     .WithReference(inventoryDb).WaitFor(inventoryDb);
@@ -32,7 +30,6 @@ var notification = builder.AddProject<Projects.OrderFlow_Notification_Api>("noti
 builder.AddProject<Projects.OrderFlow_Order_Api>("order")
     .WithReference(kafka).WaitFor(kafka)
     .WithReference(ordersDb).WaitFor(ordersDb)
-    .WithReference(redis)
     .WithReference(inventory).WaitFor(inventory)
     .WithReplicas(1);
 
