@@ -2,6 +2,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\BuildingBlocks\OrderFlow.Contracts\OrderFlow.Contracts.csproj" />
+    <!-- IIntegrationEventHandler for the saga handlers (and ILogger, transitively). -->
+    <ProjectReference Include="..\..\..\BuildingBlocks\OrderFlow.Messaging\OrderFlow.Messaging.csproj" />
     <ProjectReference Include="..\OrderFlow.Order.Domain\OrderFlow.Order.Domain.csproj" />
   </ItemGroup>
 
