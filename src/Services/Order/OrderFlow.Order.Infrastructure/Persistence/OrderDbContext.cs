@@ -3,12 +3,16 @@ namespace OrderFlow.Order.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using OrderFlow.Messaging.Outbox;
 using OrderFlow.Order.Domain.Orders;
+using OrderFlow.Order.Domain.Sagas;
 
 public sealed class OrderDbContext(DbContextOptions<OrderDbContext> options) : DbContext(options)
 {
     public const string ConnectionName = "orderflow-orders";
 
     public DbSet<Order> Orders => Set<Order>();
+
+    public DbSet<OrderSaga> OrderSagas => Set<OrderSaga>();
+
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
