@@ -1,6 +1,11 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using OrderFlow.Order.Application.Abstractions;
+using OrderFlow.Order.Application.Orders.Commands.PlaceOrder;
+using OrderFlow.Order.Application.Sagas;
 using OrderFlow.Order.Infrastructure.Persistence.Interceptors;
+using OrderFlow.Order.Infrastructure.Persistence.Repositories;
+using OrderFlow.Order.Infrastructure.Sagas;
 
 namespace OrderFlow.Order.Infrastructure.Persistence;
 
@@ -21,6 +26,18 @@ public static class OrderPersistenceRegistration
         // is attached here, where it can come from DI.
         builder.Services.ConfigureDbContext<OrderDbContext>((sp, options) =>
             options.AddInterceptors(sp.GetRequiredService<ConvertDomainEventsToOutboxInterceptor>()));
+
+        // Scoped: they share the request's DbContext, which is what makes one
+        // IUnitOfWork.SaveChangesAsync commit the order and its saga together.
+        builder.Services.AddScoped<IOrderRepository, OrderRepository>();
+        builder.Services.AddScoped<IOrderSagaRepository, OrderSagaRepository>();
+        builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
+
+        builder.Services.AddScoped<PlaceOrderCommandHandler>();
+        builder.Services.AddScoped<GetOrderSagaStatusQueryHandler>();
+
+        // Nothing else notices a saga that simply went quiet, so a scanner has to.
+        builder.Services.AddHostedService<SagaTimeoutService>();
 
         // Outbox dispatcher + cleanup are registered by AddOrderMessaging (they need Kafka).
 

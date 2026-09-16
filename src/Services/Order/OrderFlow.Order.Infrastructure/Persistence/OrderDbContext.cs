@@ -4,6 +4,7 @@ namespace OrderFlow.Order.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using OrderFlow.Messaging.Outbox;
 using OrderFlow.Order.Domain.Orders;
+using OrderFlow.Order.Domain.Sagas;
 
 /// <summary>The Order service's single database. Business tables and the outbox live here
 /// TOGETHER — that co-location is what lets one SaveChanges commit both atomically.</summary>
@@ -12,6 +13,11 @@ public sealed class OrderDbContext(DbContextOptions<OrderDbContext> options) : D
     public const string ConnectionName = "orderflow-orders";   // must match AppHost's AddDatabase name
 
     public DbSet<Order> Orders => Set<Order>();
+
+    /// <summary>Saga state lives in the SAME database as the orders, so advancing the saga
+    /// and updating the order is one local transaction — not a second distributed one.</summary>
+    public DbSet<OrderSaga> OrderSagas => Set<OrderSaga>();
+
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
