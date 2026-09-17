@@ -1,13 +1,5 @@
 namespace OrderFlow.Payment.Api.Gateway;
 
-public interface IPaymentGateway
-{
-    Task<PaymentResult> CaptureAsync(Guid orderId, decimal amount, string currency, string idempotencyKey, CancellationToken ct);
-    Task<PaymentResult> RefundAsync(Guid paymentId, CancellationToken ct);
-}
-
-public sealed record PaymentResult(bool Succeeded, Guid? PaymentId, string? FailureReason, bool IsRetryable);
-
 public sealed class FakePaymentGateway : IPaymentGateway
 {
     public async Task<PaymentResult> CaptureAsync(Guid orderId, decimal amount, string currency,

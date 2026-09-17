@@ -6,11 +6,10 @@ using OrderFlow.Contracts.Inventory;
 using OrderFlow.Contracts.Orders;
 using OrderFlow.Inventory.Api.Persistence;
 using OrderFlow.Messaging.Abstractions;
-using OrderFlow.Messaging.Outbox;
-using OrderFlow.Messaging.Serialization;
 
 public sealed partial class OrderPlacedHandler(
     InventoryDbContext db,
+    IOutboxStore outbox,
     ILogger<OrderPlacedHandler> logger) : IIntegrationEventHandler<OrderPlaced>
 {
     public async Task HandleAsync(OrderPlaced e, CancellationToken ct)
@@ -66,14 +65,6 @@ public sealed partial class OrderPlacedHandler(
     [LoggerMessage(Level = LogLevel.Information, Message = "Reserved stock for order {OrderId}.")]
     private static partial void LogReserved(ILogger logger, Guid orderId);
 
-    private void Emit(OrderFlow.Contracts.IntegrationEvent @event, Guid partitionKey)
-    {
-        db.Set<OutboxMessage>().Add(new OutboxMessage
-        {
-            Id = @event.MessageId,
-            Type = EventTypeRegistry.NameOf(@event.GetType()),
-            Content = MessageEnvelope.Wrap(@event).ToJson(),
-            PartitionKey = partitionKey.ToString()
-        });
-    }
+    private void Emit(OrderFlow.Contracts.IntegrationEvent @event, Guid partitionKey) =>
+        outbox.Enqueue(@event, partitionKey.ToString());
 }
