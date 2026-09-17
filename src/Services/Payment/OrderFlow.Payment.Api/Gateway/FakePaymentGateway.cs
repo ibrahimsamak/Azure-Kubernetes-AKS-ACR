@@ -1,13 +1,5 @@
 namespace OrderFlow.Payment.Api.Gateway;
 
-public interface IPaymentGateway
-{
-    Task<PaymentResult> CaptureAsync(Guid orderId, decimal amount, string currency, string idempotencyKey, CancellationToken ct);
-    Task<PaymentResult> RefundAsync(Guid paymentId, CancellationToken ct);
-}
-
-public sealed record PaymentResult(bool Succeeded, Guid? PaymentId, string? FailureReason, bool IsRetryable);
-
 /// <summary>Deterministic stand-in for a PSP. Every real PSP integration has the same
 /// three shapes of outcome, so building against them now means Week 3's swap is trivial.</summary>
 public sealed class FakePaymentGateway : IPaymentGateway

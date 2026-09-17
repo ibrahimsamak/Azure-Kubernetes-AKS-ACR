@@ -5,14 +5,13 @@ using Microsoft.EntityFrameworkCore;
 using OrderFlow.Contracts.Inventory;
 using OrderFlow.Contracts.Payments;
 using OrderFlow.Messaging.Abstractions;
-using OrderFlow.Messaging.Outbox;
-using OrderFlow.Messaging.Serialization;
 using OrderFlow.Payment.Api.Domain;
 using OrderFlow.Payment.Api.Gateway;
 using OrderFlow.Payment.Api.Persistence;
 
 public sealed partial class StockReservedHandler(
     PaymentDbContext db,
+    IOutboxStore outbox,
     IPaymentGateway gateway,
     ILogger<StockReservedHandler> logger) : IIntegrationEventHandler<StockReserved>
 {
@@ -83,16 +82,8 @@ public sealed partial class StockReservedHandler(
 
     /// <summary>Stage an outbox row. NOT a Kafka call — the dispatcher publishes it after
     /// this transaction commits. Same dual-write protection as on the Order side.</summary>
-    private void Emit(OrderFlow.Contracts.IntegrationEvent @event, Guid partitionKey)
-    {
-        db.Set<OutboxMessage>().Add(new OutboxMessage
-        {
-            Id = @event.MessageId,
-            Type = EventTypeRegistry.NameOf(@event.GetType()),
-            Content = MessageEnvelope.Wrap(@event).ToJson(),
-            PartitionKey = partitionKey.ToString()
-        });
-    }
+    private void Emit(OrderFlow.Contracts.IntegrationEvent @event, Guid partitionKey) =>
+        outbox.Enqueue(@event, partitionKey.ToString());
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Payment already captured for {OrderId}; re-emitting event.")]
     private static partial void LogAlreadyCaptured(ILogger logger, Guid orderId);
