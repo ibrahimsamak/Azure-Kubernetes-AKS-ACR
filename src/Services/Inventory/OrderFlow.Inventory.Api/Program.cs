@@ -1,8 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using OrderFlow.Contracts;
 using OrderFlow.Contracts.Orders;
+using OrderFlow.Inventory.Api.Grpc;
 using OrderFlow.Inventory.Api.Handlers;
 using OrderFlow.Inventory.Api.Persistence;
+using OrderFlow.Inventory.Api.Seed;
 using OrderFlow.Messaging.Abstractions;
 using OrderFlow.Messaging.DependencyInjection;
 
@@ -25,16 +27,13 @@ builder.Services.AddOrderFlowMessaging<InventoryDbContext>(
 builder.Services.AddScoped<IIntegrationEventHandler<OrderPlaced>, OrderPlacedHandler>();
 builder.Services.AddScoped<IIntegrationEventHandler<OrderCancelled>, OrderCancelledHandler>();
 
-// TODO: inventory_query.proto is still empty, so there is no generated service base to
-// implement and nothing to map. Restore these once the contract exists:
-//   builder.Services.AddGrpc();               (needs the Grpc.AspNetCore package)
-//   app.MapGrpcService<InventoryQueryService>();
+// ---- gRPC server (Day 6) ----
+builder.Services.AddGrpc();
 
 var app = builder.Build();
 
 app.MapDefaultEndpoints();          // /health, /alive — used by k8s probes in Week 3
+app.MapGrpcService<InventoryQueryService>();
 
-// TODO: StockSeeder is still empty; without it there is no stock to reserve, so the saga
-// will always fail at the first step. Restore once written:
-//   await app.MigrateAndSeedAsync();
+await app.MigrateAndSeedAsync();    // dev convenience; Week 3 replaces this with a migration job
 app.Run();

@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+option csharp_namespace = "OrderFlow.Grpc.Inventory";
+package orderflow.inventory.v1;
+
+// Internal query API. NOTE: this is a READ-ONLY, ADVISORY service.
+// Reservations happen through events, never here — a sync call that mutates state
+// across a service boundary is a distributed transaction wearing a disguise.
+service InventoryQuery {
+  // Is this order plausibly fulfillable right now? Answer in single-digit ms.
+  rpc CheckAvailability (CheckAvailabilityRequest) returns (CheckAvailabilityResponse);
+
+  // Server streaming: watch a SKU's level. Demonstrates streaming; also genuinely useful
+  // for an ops dashboard in Week 4.
+  rpc WatchStockLevel (WatchStockLevelRequest) returns (stream StockLevelUpdate);
+}
+
+message CheckAvailabilityRequest {
+  repeated RequestedItem items = 1;
+}
+
+message RequestedItem {
+  string sku = 1;
+  int32 quantity = 2;
+}
+
+message CheckAvailabilityResponse {
+  bool all_available = 1;
+  string first_unavailable_sku = 2;   // empty when all_available is true
+  repeated ItemAvailability items = 3;
+}
+
+message ItemAvailability {
+  string sku = 1;
+  int32 available = 2;
+  bool sufficient = 3;
+}
+
+message WatchStockLevelRequest { string sku = 1; }
+
+message StockLevelUpdate {
+  string sku = 1;
+  int32 available = 2;
+  int64 observed_at_unix_ms = 3;
+}

@@ -15,7 +15,9 @@ var inventoryDb = sql.AddDatabase("orderflow-inventory");
 var paymentsDb = sql.AddDatabase("orderflow-payments");
 var notificationsDb = sql.AddDatabase("orderflow-notifications");
 
-var redis = builder.AddRedis("redis");
+// No Redis: nothing reads it yet, and a provisioned dependency nobody uses costs startup
+// time and reads like a contract that exists. Bring it back in one line when there is an
+// actual cache or SignalR backplane to point at it.
 
 // ---------- Services ----------
 // Inventory first: Order's gRPC 
@@ -35,7 +37,6 @@ var notification = builder.AddProject<Projects.OrderFlow_Notification_Api>("noti
 builder.AddProject<Projects.OrderFlow_Order_Api>("order")
     .WithReference(kafka).WaitFor(kafka)
     .WithReference(ordersDb).WaitFor(ordersDb)
-    .WithReference(redis)
     // This is the line that makes gRPC service discovery work: Order resolves
     // "https://inventory" at runtime instead of hard-coding a port.
     .WithReference(inventory).WaitFor(inventory)
