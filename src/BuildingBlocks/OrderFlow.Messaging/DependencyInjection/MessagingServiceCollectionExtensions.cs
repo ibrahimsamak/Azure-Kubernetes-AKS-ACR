@@ -41,6 +41,10 @@ public static class MessagingServiceCollectionExtensions
         services.AddSingleton<IEventPublisher, KafkaEventPublisher>();
         services.AddSingleton<DeadLetterPublisher>();
 
+        // Scoped: it stages rows into the request's DbContext, so it commits with whatever
+        // business change the handler made.
+        services.AddScoped<IOutboxStore>(sp => new EfOutboxStore<TContext>(sp.GetRequiredService<TContext>()));
+
         // Dispatcher: scoped, because it needs the scoped DbContext for the transaction.
         services.AddScoped(sp => new IntegrationEventDispatcher(
             sp,

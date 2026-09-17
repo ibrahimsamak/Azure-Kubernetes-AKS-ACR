@@ -1,5 +1,7 @@
 namespace OrderFlow.Messaging.Dispatch;
 
+using System.Reflection;
+using System.Runtime.ExceptionServices;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -32,40 +34,65 @@ public sealed partial class IntegrationEventDispatcher(
             return;   // we still commit the offset: this service does not care about this event
         }
 
-        // Explicit transaction: the Inbox claim, the handler's business writes, and the
-        // handler's outbox rows must all commit or all roll back.
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        // Every service enables EnableRetryOnFailure, and a retrying execution strategy
+        // REFUSES a user-initiated transaction unless the whole unit is run through it.
+        // Without this the dispatcher throws on the very first message it ever handles.
+        var strategy = db.Database.CreateExecutionStrategy();
 
-        var inbox = new EfInboxStore<DbContext>(db, consumerName);
-        inbox.Claim(@event.MessageId, envelope.Type);
-
-        try
+        await strategy.ExecuteAsync(async () =>
         {
-            foreach (var handler in handlers)
+            // A transient fault re-runs this delegate, so anything a failed attempt staged
+            // (not least the inbox claim) has to be dropped or it would be inserted twice.
+            db.ChangeTracker.Clear();
+
+            // Explicit transaction: the Inbox claim, the handler's business writes, and the
+            // handler's outbox rows must all commit or all roll back.
+            await using var tx = await db.Database.BeginTransactionAsync(ct);
+
+            var inbox = new EfInboxStore<DbContext>(db, consumerName);
+            inbox.Claim(@event.MessageId, envelope.Type);
+
+            try
             {
-                var method = handlerType.GetMethod(nameof(IIntegrationEventHandler<IntegrationEvent>.HandleAsync))!;
-                await (Task)method.Invoke(handler, [@event, ct])!;
+                foreach (var handler in handlers)
+                {
+                    var method = handlerType.GetMethod(nameof(IIntegrationEventHandler<IntegrationEvent>.HandleAsync))!;
+
+                    try
+                    {
+                        await (Task)method.Invoke(handler, [@event, ct])!;
+                    }
+                    catch (TargetInvocationException ex) when (ex.InnerException is not null)
+                    {
+                        // A handler that throws SYNCHRONOUSLY comes back wrapped, while one
+                        // that throws after an await does not. Unwrap so both look the same
+                        // to the retry logic — and, more importantly, so the DLQ records what
+                        // actually went wrong instead of "Exception has been thrown by the
+                        // target of an invocation."
+                        ExceptionDispatchInfo.Capture(ex.InnerException).Throw();
+                    }
+                }
+
+                // One SaveChanges: inbox row + business rows + any new outbox rows.
+                await db.SaveChangesAsync(ct);
+                await tx.CommitAsync(ct);
+
+                LogHandled(logger, envelope.Type, @event.MessageId, @event.CorrelationId);
             }
-
-            // One SaveChanges: inbox row + business rows + any new outbox rows.
-            await db.SaveChangesAsync(ct);
-            await tx.CommitAsync(ct);
-
-            LogHandled(logger, envelope.Type, @event.MessageId, @event.CorrelationId);
-        }
-        catch (DbUpdateException ex) when (InboxDuplicateDetector.IsDuplicate(ex))
-        {
-            // THE DEDUP PATH. A redelivery (Kafka rebalance, outbox re-publish, or a crash
-            // after commit but before offset commit) lands here. Roll back and move on —
-            // the work is already durably done from the first delivery.
-            await tx.RollbackAsync(ct);
-            LogDuplicateIgnored(logger, envelope.Type, @event.MessageId, consumerName);
-        }
-        catch
-        {
-            await tx.RollbackAsync(ct);
-            throw;   // consumer host retries, then dead-letters
-        }
+            catch (DbUpdateException ex) when (InboxDuplicateDetector.IsDuplicate(ex))
+            {
+                // THE DEDUP PATH. A redelivery (Kafka rebalance, outbox re-publish, or a crash
+                // after commit but before offset commit) lands here. Roll back and move on —
+                // the work is already durably done from the first delivery.
+                await tx.RollbackAsync(ct);
+                LogDuplicateIgnored(logger, envelope.Type, @event.MessageId, consumerName);
+            }
+            catch
+            {
+                await tx.RollbackAsync(ct);
+                throw;   // consumer host retries, then dead-letters
+            }
+        });
     }
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Ignoring unknown event type {Type}.")]

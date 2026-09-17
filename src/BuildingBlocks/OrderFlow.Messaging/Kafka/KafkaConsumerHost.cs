@@ -2,6 +2,7 @@ namespace OrderFlow.Messaging.Kafka;
 
 using System.Diagnostics;
 using System.Text;
+using System.Text.Json;
 using Confluent.Kafka;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -122,7 +123,19 @@ public sealed partial class KafkaConsumerHost(
 
             try
             {
-                var envelope = MessageEnvelope.FromJson(result.Message.Value);
+                MessageEnvelope? envelope;
+                try
+                {
+                    envelope = MessageEnvelope.FromJson(result.Message.Value);
+                }
+                catch (JsonException)
+                {
+                    // FromJson only returns null for valid-but-empty JSON; genuinely malformed
+                    // bytes throw. Both mean the same thing, and neither becomes parseable on
+                    // a retry — without this catch, garbage burns the full retry budget first.
+                    envelope = null;
+                }
+
                 if (envelope is null)
                 {
                     // Unparseable bytes will never become parseable. Do not retry; park it.

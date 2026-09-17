@@ -36,9 +36,15 @@ public sealed partial class KafkaTopicProvisioner(
             var topicNames = specs.ConvertAll(s => s.Name);
             LogProvisioned(logger, topicNames);
         }
-        catch (CreateTopicsException ex) when (ex.Results.All(r => r.Error.Code is ErrorCode.TopicAlreadyExists))
+        catch (CreateTopicsException ex) when (
+            ex.Results.All(r => r.Error.Code is ErrorCode.NoError or ErrorCode.TopicAlreadyExists))
         {
-            // Idempotent startup: every restart re-runs this. Already existing is success.
+            // Idempotent startup: every restart re-runs this, and already existing is success.
+            //
+            // NoError has to be tolerated alongside it, because a MIXED result is the normal
+            // case the moment a topic is added to an existing deployment — some created, some
+            // already there. Requiring every result to be TopicAlreadyExists would rethrow,
+            // and a throw here stops the whole service from starting.
             LogTopicsAlreadyExist(logger);
         }
     }
