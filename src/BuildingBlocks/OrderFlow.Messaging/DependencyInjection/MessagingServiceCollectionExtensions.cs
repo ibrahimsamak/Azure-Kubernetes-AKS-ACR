@@ -34,6 +34,8 @@ public static class MessagingServiceCollectionExtensions
         services.AddSingleton<IEventPublisher, KafkaEventPublisher>();
         services.AddSingleton<DeadLetterPublisher>();
 
+        services.AddScoped<IOutboxStore>(sp => new EfOutboxStore<TContext>(sp.GetRequiredService<TContext>()));
+
         services.AddScoped(sp => new IntegrationEventDispatcher(
             sp,
             sp.GetRequiredService<TContext>(),

@@ -10,6 +10,13 @@ csharp_prefer_braces = true:warning
 dotnet_diagnostic.CA2007.severity = none
 dotnet_diagnostic.IDE0005.severity = error
 
+[**/Migrations/*.cs]
+generated_code = true
+dotnet_analyzer_diagnostic.severity = none
+dotnet_diagnostic.IDE0005.severity = none
+dotnet_diagnostic.IDE0161.severity = none
+dotnet_diagnostic.CA1861.severity = none
+
 [*.{csproj,props,targets}]
 indent_style = space
 indent_size = 2

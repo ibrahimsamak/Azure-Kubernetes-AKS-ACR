@@ -2,6 +2,7 @@ namespace OrderFlow.Messaging.Kafka;
 
 using System.Diagnostics;
 using System.Text;
+using System.Text.Json;
 using Confluent.Kafka;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -103,7 +104,16 @@ public sealed partial class KafkaConsumerHost(
 
             try
             {
-                var envelope = MessageEnvelope.FromJson(result.Message.Value);
+                MessageEnvelope? envelope;
+                try
+                {
+                    envelope = MessageEnvelope.FromJson(result.Message.Value);
+                }
+                catch (JsonException)
+                {
+                    envelope = null;
+                }
+
                 if (envelope is null)
                 {
                     await DeadLetterAsync(scope, result, headers, "malformed-envelope", ct);

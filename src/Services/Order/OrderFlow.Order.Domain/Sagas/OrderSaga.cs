@@ -127,6 +127,10 @@ public sealed class OrderSaga : Entity<Guid>
             case OrderSagaState.AwaitingPayment:
                 Fail("Timed out waiting for payment.");
                 break;
+            case OrderSagaState.Paid:
+                Confirm();
+                break;
+
             case OrderSagaState.Compensating:
                 Raise(new OrderSagaStuckDomainEvent(Id, State.ToString(), FailureReason));
                 DeadlineUtc = DateTime.UtcNow.AddMinutes(5);

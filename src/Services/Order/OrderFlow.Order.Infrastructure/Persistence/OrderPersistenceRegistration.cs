@@ -25,11 +25,14 @@ public static class OrderPersistenceRegistration
         builder.Services.AddScoped<IOrderRepository, OrderRepository>();
         builder.Services.AddScoped<IOrderSagaRepository, OrderSagaRepository>();
         builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
+        builder.Services.AddScoped<IIdempotencyStore, EfIdempotencyStore>();
 
         builder.Services.AddScoped<PlaceOrderCommandHandler>();
         builder.Services.AddScoped<GetOrderSagaStatusQueryHandler>();
 
         builder.Services.AddHostedService<SagaTimeoutService>();
+
+        builder.Services.AddHostedService<IdempotencyCleanupService>();
 
         return builder;
     }

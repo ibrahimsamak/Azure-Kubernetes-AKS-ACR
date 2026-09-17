@@ -31,6 +31,15 @@ public sealed partial class SagaTimeoutService(
                 {
                     LogTimedOut(logger, saga.Id, saga.State.ToString());
                     saga.OnTimeout();
+
+                    if (saga.State == OrderSagaState.Compensating)
+                    {
+                        var order = await db.Orders
+                            .Include(o => o.Lines)
+                            .FirstOrDefaultAsync(o => o.Id == saga.Id, stoppingToken);
+
+                        order?.Cancel(saga.FailureReason ?? "Saga timed out.", saga.PaymentWasCaptured);
+                    }
                 }
 
                 if (expired.Count > 0)

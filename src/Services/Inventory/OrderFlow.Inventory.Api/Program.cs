@@ -1,8 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using OrderFlow.Contracts;
 using OrderFlow.Contracts.Orders;
+using OrderFlow.Inventory.Api.Grpc;
 using OrderFlow.Inventory.Api.Handlers;
 using OrderFlow.Inventory.Api.Persistence;
+using OrderFlow.Inventory.Api.Seed;
 using OrderFlow.Messaging.Abstractions;
 using OrderFlow.Messaging.DependencyInjection;
 
@@ -23,8 +25,12 @@ builder.Services.AddOrderFlowMessaging<InventoryDbContext>(
 builder.Services.AddScoped<IIntegrationEventHandler<OrderPlaced>, OrderPlacedHandler>();
 builder.Services.AddScoped<IIntegrationEventHandler<OrderCancelled>, OrderCancelledHandler>();
 
+builder.Services.AddGrpc();
+
 var app = builder.Build();
 
 app.MapDefaultEndpoints();
+app.MapGrpcService<InventoryQueryService>();
 
+await app.MigrateAndSeedAsync();
 app.Run();

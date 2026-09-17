@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+option csharp_namespace = "OrderFlow.Grpc.Inventory";
+package orderflow.inventory.v1;
+
+service InventoryQuery {
+  rpc CheckAvailability (CheckAvailabilityRequest) returns (CheckAvailabilityResponse);
+
+  rpc WatchStockLevel (WatchStockLevelRequest) returns (stream StockLevelUpdate);
+}
+
+message CheckAvailabilityRequest {
+  repeated RequestedItem items = 1;
+}
+
+message RequestedItem {
+  string sku = 1;
+  int32 quantity = 2;
+}
+
+message CheckAvailabilityResponse {
+  bool all_available = 1;
+  string first_unavailable_sku = 2;
+  repeated ItemAvailability items = 3;
+}
+
+message ItemAvailability {
+  string sku = 1;
+  int32 available = 2;
+  bool sufficient = 3;
+}
+
+message WatchStockLevelRequest { string sku = 1; }
+
+message StockLevelUpdate {
+  string sku = 1;
+  int32 available = 2;
+  int64 observed_at_unix_ms = 3;
+}
