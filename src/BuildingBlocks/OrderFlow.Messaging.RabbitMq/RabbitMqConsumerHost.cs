@@ -6,30 +6,30 @@ using Microsoft.Extensions.Logging;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 
-public sealed partial class RabbitMqConsumerHost(string connectionString, ILogger<RabbitMqConsumerHost> logger)
+public sealed partial class RabbitMqConsumerHost(RabbitMqOptions options, ILogger<RabbitMqConsumerHost> logger)
     : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var factory = new ConnectionFactory { Uri = new Uri(connectionString) };
+        var factory = new ConnectionFactory { Uri = new Uri(options.ConnectionString) };
         await using var connection = await factory.CreateConnectionAsync(stoppingToken);
         await using var channel = await connection.CreateChannelAsync(cancellationToken: stoppingToken);
 
-        await channel.ExchangeDeclareAsync("notifications", ExchangeType.Fanout, durable: true, cancellationToken: stoppingToken);
+        await channel.ExchangeDeclareAsync(options.Exchange, ExchangeType.Fanout, durable: true, cancellationToken: stoppingToken);
 
         // CONTRAST #2: dead-lettering is BUILT IN. In Kafka we wrote DeadLetterPublisher by hand.
-        await channel.QueueDeclareAsync("notifications.email", durable: true, exclusive: false, autoDelete: false,
+        await channel.QueueDeclareAsync(options.Queue, durable: true, exclusive: false, autoDelete: false,
             arguments: new Dictionary<string, object?>
             {
-                ["x-dead-letter-exchange"] = "notifications.dlx",
-                ["x-message-ttl"] = 86_400_000
+                ["x-dead-letter-exchange"] = options.DeadLetterExchange,
+                ["x-message-ttl"] = options.MessageTtlMs
             }, cancellationToken: stoppingToken);
-        await channel.QueueBindAsync("notifications.email", "notifications", string.Empty, cancellationToken: stoppingToken);
+        await channel.QueueBindAsync(options.Queue, options.Exchange, string.Empty, cancellationToken: stoppingToken);
 
         // CONTRAST #3: prefetch controls in-flight work PER CONSUMER. Kafka's unit of
         // parallelism is the partition, which you must decide when creating the topic.
         // Here you just add another consumer process and the broker shares the queue out.
-        await channel.BasicQosAsync(prefetchSize: 0, prefetchCount: 10, global: false, cancellationToken: stoppingToken);
+        await channel.BasicQosAsync(prefetchSize: 0, prefetchCount: options.PrefetchCount, global: false, cancellationToken: stoppingToken);
 
         var consumer = new AsyncEventingBasicConsumer(channel);
         consumer.ReceivedAsync += async (_, ea) =>
@@ -55,7 +55,7 @@ public sealed partial class RabbitMqConsumerHost(string connectionString, ILogge
         // Kafka is PULL: we poll, and the broker tracks only a single integer per partition.
         // That is precisely why Kafka scales to millions of messages/sec and RabbitMQ gives
         // you richer per-message semantics.
-        await channel.BasicConsumeAsync("notifications.email", autoAck: false, consumer: consumer, cancellationToken: stoppingToken);
+        await channel.BasicConsumeAsync(options.Queue, autoAck: false, consumer: consumer, cancellationToken: stoppingToken);
 
         await Task.Delay(Timeout.Infinite, stoppingToken);
     }
