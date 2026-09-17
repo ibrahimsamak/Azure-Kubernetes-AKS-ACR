@@ -32,12 +32,16 @@ public static class OrderPersistenceRegistration
         builder.Services.AddScoped<IOrderRepository, OrderRepository>();
         builder.Services.AddScoped<IOrderSagaRepository, OrderSagaRepository>();
         builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
+        builder.Services.AddScoped<IIdempotencyStore, EfIdempotencyStore>();
 
         builder.Services.AddScoped<PlaceOrderCommandHandler>();
         builder.Services.AddScoped<GetOrderSagaStatusQueryHandler>();
 
         // Nothing else notices a saga that simply went quiet, so a scanner has to.
         builder.Services.AddHostedService<SagaTimeoutService>();
+
+        // Idempotency keys are only useful for the length of a client retry window.
+        builder.Services.AddHostedService<IdempotencyCleanupService>();
 
         // Outbox dispatcher + cleanup are registered by AddOrderMessaging (they need Kafka).
 

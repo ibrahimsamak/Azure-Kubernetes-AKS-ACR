@@ -22,14 +22,21 @@ public sealed class OrdersController(
     /// <summary>Accepts an order. The work completes asynchronously via the saga.</summary>
     [HttpPost]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
-    public async Task<IActionResult> Place(PlaceOrderRequest request, CancellationToken ct)
+    public async Task<IActionResult> Place(
+        PlaceOrderRequest request,
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
+        CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        // Idempotency-Key stops a double-click creating two orders. Note it solves a
+        // DIFFERENT problem from the message Inbox: that one dedups messages the broker
+        // delivered twice, this one dedups client REQUESTS.
         var command = new PlaceOrderCommand(
             request.CustomerId,
             request.Currency,
-            [.. request.Lines.Select(l => new PlaceOrderLine(l.Sku, l.Quantity, l.UnitPrice))]);
+            [.. request.Lines.Select(l => new PlaceOrderLine(l.Sku, l.Quantity, l.UnitPrice))],
+            idempotencyKey);
 
         var orderId = await placeOrder.HandleAsync(command, ct);
 

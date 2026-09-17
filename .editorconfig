@@ -10,6 +10,16 @@ csharp_prefer_braces = true:warning
 dotnet_diagnostic.CA2007.severity = none   # no ConfigureAwait ceremony in app code
 dotnet_diagnostic.IDE0005.severity = error # remove unnecessary usings
 
+# EF Core writes these; they are not ours to style. `generated_code` is what tells Roslyn
+# to stop applying analyzers, which matters because TreatWarningsAsErrors makes every
+# nit in a scaffolded file a build failure.
+[**/Migrations/*.cs]
+generated_code = true
+dotnet_analyzer_diagnostic.severity = none
+dotnet_diagnostic.IDE0005.severity = none
+dotnet_diagnostic.IDE0161.severity = none
+dotnet_diagnostic.CA1861.severity = none
+
 [*.{csproj,props,targets}]
 indent_style = space
 indent_size = 2
