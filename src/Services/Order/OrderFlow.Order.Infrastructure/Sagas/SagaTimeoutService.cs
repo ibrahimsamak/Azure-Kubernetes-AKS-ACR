@@ -30,7 +30,19 @@ public sealed partial class SagaTimeoutService(
                 foreach (var saga in expired)
                 {
                     LogTimedOut(logger, saga.Id, saga.State.ToString());
-                    saga.OnTimeout();   // raises domain events -> outbox -> compensation
+                    saga.OnTimeout();
+
+                    // Same reason as in the failure handlers: the saga's own failure event
+                    // never reaches the wire, so the ORDER has to be cancelled for anyone to
+                    // hear about it and start compensating.
+                    if (saga.State == OrderSagaState.Compensating)
+                    {
+                        var order = await db.Orders
+                            .Include(o => o.Lines)
+                            .FirstOrDefaultAsync(o => o.Id == saga.Id, stoppingToken);
+
+                        order?.Cancel(saga.FailureReason ?? "Saga timed out.", saga.PaymentWasCaptured);
+                    }
                 }
 
                 if (expired.Count > 0)

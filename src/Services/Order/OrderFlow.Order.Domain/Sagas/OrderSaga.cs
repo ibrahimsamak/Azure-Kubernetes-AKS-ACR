@@ -162,6 +162,14 @@ public sealed class OrderSaga : Entity<Guid>
                 // PaymentWasCaptured so a refund is still issued. Never assume silence = failure.
                 Fail("Timed out waiting for payment.");
                 break;
+            case OrderSagaState.Paid:
+                // Payment landed but confirmation did not follow. Nothing is owed to anyone
+                // here — the work succeeded — so finish the job rather than compensate.
+                // Without this branch the deadline stays in the past and the scanner
+                // re-reads the same saga every 5 seconds forever.
+                Confirm();
+                break;
+
             case OrderSagaState.Compensating:
                 // Compensation itself is stuck: escalate to a human, do NOT silently cancel.
                 Raise(new OrderSagaStuckDomainEvent(Id, State.ToString(), FailureReason));

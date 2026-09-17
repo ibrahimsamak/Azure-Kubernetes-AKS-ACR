@@ -30,12 +30,33 @@ public sealed partial class StockReservedHandler(IOrderSagaRepository sagas, ILo
 }
 
 /// <summary>Inventory could not reserve: fail fast, no compensation needed for stock.</summary>
-public sealed class StockReservationFailedHandler(IOrderSagaRepository sagas) : IIntegrationEventHandler<StockReservationFailed>
+public sealed class StockReservationFailedHandler(IOrderSagaRepository sagas, IOrderRepository orders)
+    : IIntegrationEventHandler<StockReservationFailed>
 {
     public async Task HandleAsync(StockReservationFailed e, CancellationToken ct)
     {
+        ArgumentNullException.ThrowIfNull(e);
+
         var saga = await sagas.GetAsync(e.OrderId, ct);
-        saga?.Fail($"Stock unavailable for {e.Sku}: {e.Reason}");
+        if (saga is null) { return; }
+
+        saga.Fail($"Stock unavailable for {e.Sku}: {e.Reason}");
+        await SagaCompensation.AnnounceAsync(saga, orders, ct);
+    }
+}
+
+/// <summary>The saga's own failure event is internal — it is never mapped onto the wire.
+/// Cancelling the ORDER is what puts a public OrderCancelled out, and that single event is
+/// what makes Inventory release and Payment refund. Without this, a failed saga sits in
+/// Compensating waiting for ACKs nobody was ever asked for.</summary>
+internal static class SagaCompensation
+{
+    public static async Task AnnounceAsync(OrderSaga saga, IOrderRepository orders, CancellationToken ct)
+    {
+        if (saga.State != OrderSagaState.Compensating) { return; }
+
+        var order = await orders.GetByIdAsync(saga.Id, ct);
+        order?.Cancel(saga.FailureReason ?? "Saga failed.", saga.PaymentWasCaptured);
     }
 }
 
@@ -62,11 +83,16 @@ public sealed class PaymentCapturedHandler(IOrderSagaRepository sagas, IOrderRep
 
 /// <summary>Payment failed. Retryable failures wait for Payment's own retry; permanent
 /// failures start compensation immediately.</summary>
-public sealed partial class PaymentFailedHandler(IOrderSagaRepository sagas, ILogger<PaymentFailedHandler> logger)
+public sealed partial class PaymentFailedHandler(
+    IOrderSagaRepository sagas,
+    IOrderRepository orders,
+    ILogger<PaymentFailedHandler> logger)
     : IIntegrationEventHandler<PaymentFailed>
 {
     public async Task HandleAsync(PaymentFailed e, CancellationToken ct)
     {
+        ArgumentNullException.ThrowIfNull(e);
+
         var saga = await sagas.GetAsync(e.OrderId, ct);
         if (saga is null) { return; }
 
@@ -79,6 +105,7 @@ public sealed partial class PaymentFailedHandler(IOrderSagaRepository sagas, ILo
         }
 
         saga.Fail($"Payment declined: {e.Reason}");
+        await SagaCompensation.AnnounceAsync(saga, orders, ct);
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Retryable payment failure for {OrderId}: {Reason}")]
