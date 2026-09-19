@@ -8,7 +8,8 @@ using OrderFlow.Order.Application.Abstractions;
 using OrderFlow.Order.Domain.Sagas;
 
 /// <summary>Inventory reserved the stock: advance to payment.</summary>
-public sealed partial class StockReservedHandler(IOrderSagaRepository sagas, ILogger<StockReservedHandler> logger) : IIntegrationEventHandler<StockReserved>
+public sealed partial class StockReservedHandler(IOrderSagaRepository sagas, ILogger<StockReservedHandler> logger) 
+    : IIntegrationEventHandler<StockReserved>
 {
     public async Task HandleAsync(StockReserved e, CancellationToken ct)
     {

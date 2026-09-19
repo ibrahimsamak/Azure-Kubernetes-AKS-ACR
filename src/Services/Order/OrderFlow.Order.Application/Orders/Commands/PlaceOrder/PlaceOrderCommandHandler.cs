@@ -40,8 +40,7 @@ public sealed partial class PlaceOrderCommandHandler(
         // HINT, never a reservation: stock can vanish between this call and the reservation.
         // If Inventory is down we accept the order anyway and let the saga decide — the
         // availability of the ORDER path must not depend on Inventory being up.
-        var availability = await inventory.CheckAvailabilityAsync(
-            [.. request.Lines.Select(l => (l.Sku, l.Quantity))], ct);
+        var availability = await inventory.CheckAvailabilityAsync([.. request.Lines.Select(l => (l.Sku, l.Quantity))], ct);
 
         if (availability is { Known: true, AllAvailable: false })
         {
