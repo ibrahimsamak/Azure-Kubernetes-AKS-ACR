@@ -16,6 +16,11 @@ builder.Services.AddDbContext<InventoryDbContext>(o =>
     o.UseSqlServer(builder.Configuration.GetConnectionString("orderflow-inventory"),
         sql => sql.EnableRetryOnFailure()));   // transient SQL faults are normal in cloud DBs
 
+// Readiness = "can this pod reach its own database?". Kafka is deliberately not here:
+// a broker blip must not take every pod out of the Service's endpoints.
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<InventoryDbContext>("inventory-db", tags: [Extensions.ReadyTag]);
+
 // ---- Messaging: subscribe to Order's topic, own Inventory's topic ----
 builder.Services.AddOrderFlowMessaging<InventoryDbContext>(
     builder.Configuration,
@@ -35,5 +40,10 @@ var app = builder.Build();
 app.MapDefaultEndpoints();          // /health, /alive — used by k8s probes in Week 3
 app.MapGrpcService<InventoryQueryService>();
 
-await app.MigrateAndSeedAsync();    // dev convenience; Week 3 replaces this with a migration job
+// Opt-out, so a migration Job can take over later (stretch goal).
+if (app.Configuration.GetValue("Database:MigrateOnStartup", true))
+{
+    await app.MigrateAndSeedAsync();
+}
+
 app.Run();

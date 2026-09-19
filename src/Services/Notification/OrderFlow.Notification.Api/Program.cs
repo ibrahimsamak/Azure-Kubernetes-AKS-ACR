@@ -15,6 +15,11 @@ builder.Services.AddDbContext<NotificationDbContext>(o =>
     o.UseSqlServer(builder.Configuration.GetConnectionString(NotificationDbContext.ConnectionName),
         sql => sql.EnableRetryOnFailure()));
 
+// Readiness = "can this pod reach its own database?". Kafka and RabbitMQ are deliberately
+// not here: a broker blip must not take every pod out of the Service's endpoints.
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<NotificationDbContext>("notifications-db", tags: [Extensions.ReadyTag]);
+
 // ---- Messaging: listen to Orders, publish nothing ----
 // Notification is a pure consumer: it owns no topic because it produces no facts about
 // the business, only side effects.
@@ -35,8 +40,10 @@ var app = builder.Build();
 
 app.MapDefaultEndpoints();          // /health, /alive
 
-using (var scope = app.Services.CreateScope())
+// Opt-out, so a migration Job can take over later (stretch goal).
+if (app.Configuration.GetValue("Database:MigrateOnStartup", true))
 {
+    using var scope = app.Services.CreateScope();
     await scope.ServiceProvider.GetRequiredService<NotificationDbContext>().Database.MigrateAsync();
 }
 

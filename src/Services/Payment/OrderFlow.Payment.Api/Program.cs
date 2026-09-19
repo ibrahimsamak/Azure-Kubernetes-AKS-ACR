@@ -16,6 +16,11 @@ builder.Services.AddDbContext<PaymentDbContext>(o =>
     o.UseSqlServer(builder.Configuration.GetConnectionString(PaymentDbContext.ConnectionName),
         sql => sql.EnableRetryOnFailure()));   // transient SQL faults are normal in cloud DBs
 
+// Readiness = "can this pod reach its own database?". Kafka is deliberately not here:
+// a broker blip must not take every pod out of the Service's endpoints.
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<PaymentDbContext>("payments-db", tags: [Extensions.ReadyTag]);
+
 // ---- Messaging: subscribe to Orders and Inventory, own Payments ----
 // Orders for the amount (OrderPlaced) and the cancellation, Inventory for the go-ahead.
 builder.Services.AddOrderFlowMessaging<PaymentDbContext>(
@@ -36,8 +41,10 @@ var app = builder.Build();
 
 app.MapDefaultEndpoints();          // /health, /alive
 
-using (var scope = app.Services.CreateScope())
+// Opt-out, so a migration Job can take over later (stretch goal).
+if (app.Configuration.GetValue("Database:MigrateOnStartup", true))
 {
+    using var scope = app.Services.CreateScope();
     await scope.ServiceProvider.GetRequiredService<PaymentDbContext>().Database.MigrateAsync();
 }
 
