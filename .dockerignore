@@ -1,0 +1,29 @@
+# Build outputs from the host — must never enter the container build
+**/bin/
+**/obj/
+**/out/
+
+# IDE and OS
+**/.vs/
+**/.vscode/
+**/.idea/
+**/*.user
+**/*.suo
+**/Thumbs.db
+
+# Not needed to build service images
+.git/
+docs/
+tests/
+deploy/
+infra/
+web/
+src/Aspire/
+src/Functions/
+**/node_modules/
+
+# Local-only config — never bake developer settings into an image
+**/appsettings.Development.json
+**/Properties/launchSettings.json
+**/local.settings.json
+docker-compose*.yml
