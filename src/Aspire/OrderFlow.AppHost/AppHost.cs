@@ -1,4 +1,8 @@
+
 var builder = DistributedApplication.CreateBuilder(args);
+
+
+
 
 // ---------- Infrastructure containers ----------
 var kafka = builder.AddKafka("kafka")
@@ -34,12 +38,15 @@ var notification = builder.AddProject<Projects.OrderFlow_Notification_Api>("noti
     .WithReference(rabbit).WaitFor(rabbit)
     .WithReference(notificationsDb).WaitFor(notificationsDb);
 
-builder.AddProject<Projects.OrderFlow_Order_Api>("order")
+
+var order = builder.AddProject<Projects.OrderFlow_Order_Api>("order")
     .WithReference(kafka).WaitFor(kafka)
     .WithReference(ordersDb).WaitFor(ordersDb)
-    // This is the line that makes gRPC service discovery work: Order resolves
-    // "https://inventory" at runtime instead of hard-coding a port.
-    .WithReference(inventory).WaitFor(inventory)
-    .WithReplicas(1);
+    //.WithReference(redis)
+    .WithReference(inventory).WaitFor(inventory);
+
+builder.AddProject<Projects.OrderFlow_Gateway>("gateway")
+    .WithReference(order).WaitFor(order)
+    .WithExternalHttpEndpoints();
 
 builder.Build().Run();
