@@ -1,7 +1,7 @@
 # Distributed-System-Architecture - Order
 
-Event-driven order fulfilment across four independently deployable .NET services, coordinated by
-an orchestrated saga over Kafka.
+Event-driven order fulfilment across four independently deployable .NET services behind a reverse
+proxy, coordinated by an orchestrated saga over Kafka, and shipped as container images.
 
 Placing an order touches stock, money and the customer's inbox — three things that live in three
 different databases. OrderFlow does that without a distributed transaction: each service commits
@@ -10,8 +10,10 @@ locally, publishes a fact, and the saga remembers where it got to and what it ow
 ```
                       ┌──────────────────────────────────────────────┐
    POST /api/v1/orders│                                              │
-   ───────────────────▶   Order  ── owns the order AND the saga      │
-        202 Accepted  │      │                                       │
+   ───────────────────▶  Gateway ── the only published address       │
+        202 Accepted  │      │  YARP, routes on path                 │
+                      │      ▼                                       │
+                      │  Order  ── owns the order AND the saga       │
                       └──────┼───────────────────────────────────────┘
                              │  orderflow.orders.v1
              ┌───────────────┼────────────────────────────┐
@@ -58,10 +60,64 @@ deadline) still records what it owes, because silence is never treated as proof 
 Handlers never call `SaveChanges`. The dispatcher owns the transaction, so the business change,
 the inbox claim and any new outbox rows commit together or not at all.
 
+## The gateway
+
+Callers know one address, not five. The gateway is the only thing published to the outside; the
+services are unreachable except through it, which is also where authentication and rate limiting
+belong once they exist.
+
+Routing is entirely configuration — no C# decides where a request goes — so splitting a service
+later changes one route here instead of every caller:
+
+```json
+"Routes": {
+  "orders": { "ClusterId": "order", "Match": { "Path": "/api/v1/orders/{**catch-all}" } }
+}
+```
+
+Destinations are resolved through service discovery, so `http://order` is a logical name that
+Aspire resolves locally and that is ordinary DNS anywhere it runs as a deployed service.
+
+## Containers
+
+Each service builds to its own image from the repository root as build context. The build is
+multi-stage and the stages are split on purpose:
+
+- The restore layer copies **only** the `.csproj` files the service transitively needs, then
+  restores. Package resolution depends on nothing else, so editing C# never re-downloads NuGet —
+  the expensive layer sits above the one that changes every few minutes.
+- The runtime stage starts from `aspnet:10.0-noble-chiseled` and copies in just the publish
+  output. No SDK, no source, no shell, no package manager: nothing to pivot to if the process is
+  compromised. Roughly 110 MB against the 800 MB build image, running as a non-root user.
+
+Nothing environment-specific is baked in. Connection strings, the gRPC address Order dials and
+Inventory's listener configuration all arrive as environment variables, so the same image runs
+locally and anywhere else unchanged.
+
+Inventory listens on two ports because gRPC needs HTTP/2 and there is no TLS inside the network
+to negotiate it with: 8080 is HTTP/1.1 for REST and probes, 8081 is HTTP/2 for gRPC.
+
+## Health
+
+Two endpoints, mapped in every environment, answering two different questions:
+
+| | Asks | Consequence of a "no" |
+|---|---|---|
+| `/health/live` | Can the process execute code? | Restart it |
+| `/health/ready` | Should it receive traffic right now? | Take it out of rotation |
+
+Liveness checks nothing but itself. A dependency in there is a self-inflicted outage: one slow
+database and every replica restarts at once, comes back to the same slow database, and restarts
+again.
+
+Readiness checks the service's own database and nothing else. Kafka, Redis and RabbitMQ are
+deliberately excluded — if the broker is down, orders are still accepted and wait in the outbox,
+so reporting unready would turn a broker blip into a checkout outage.
+
 ## Stack
 
-.NET 10 · ASP.NET Core · EF Core (SQL Server) · Kafka · RabbitMQ · gRPC · .NET Aspire ·
-OpenTelemetry · xUnit · Testcontainers · PactNet
+.NET 10 · ASP.NET Core · EF Core (SQL Server) · Kafka · RabbitMQ · gRPC · YARP · .NET Aspire ·
+Docker · OpenTelemetry · xUnit · Testcontainers · PactNet
 
 ## Running it
 
@@ -71,11 +127,27 @@ Requires the .NET 10 SDK and a container runtime.
 dotnet run --project src/Aspire/OrderFlow.AppHost
 ```
 
-Aspire starts Kafka, RabbitMQ and SQL Server, provisions a database per service, and launches all
-four services with service discovery wired up; its dashboard collects the traces, logs and metrics
-for the whole system in one place. Each service migrates its own schema on startup, and Inventory
-seeds a small catalogue — `SKU-1`, `SKU-2`, `SKU-3`, plus `SKU-OOS` with nothing on hand so the
-reservation-failure path is reachable without editing the database by hand.
+Aspire starts Kafka, RabbitMQ and SQL Server, provisions a database per service, and launches the
+services and the gateway with service discovery wired up; its dashboard collects the traces, logs
+and metrics for the whole system in one place. Each service migrates its own schema on startup,
+and Inventory seeds a small catalogue — `SKU-1`, `SKU-2`, `SKU-3`, plus `SKU-OOS` with nothing on
+hand so the reservation-failure path is reachable without editing the database by hand.
+
+Migrating on startup is opt-out, so a dedicated migration step can take it over:
+
+```bash
+Database__MigrateOnStartup=false
+```
+
+### Everything in containers
+
+```bash
+docker compose --profile apps up --build
+```
+
+Builds all five images and runs them against the same infrastructure. Only the gateway publishes a
+port, so the services are reachable exactly as they would be in a cluster — through the gateway or
+not at all.
 
 To bring up only the infrastructure and debug the services from an IDE:
 
@@ -83,11 +155,20 @@ To bring up only the infrastructure and debug the services from an IDE:
 docker compose up -d
 ```
 
+To build a single image by hand:
+
+```bash
+docker build -f src/Services/Inventory/OrderFlow.Inventory.Api/Dockerfile \
+             -t orderflow/inventory-api:local .
+```
+
 ## API
+
+Through the gateway on `:8080` under compose; under Aspire, the gateway's port is on the dashboard.
 
 ```bash
 # Place an order. 202 with a poll URL: the work finishes asynchronously, so 201 would be a lie.
-curl -X POST http://localhost:<order-port>/api/v1/orders \
+curl -X POST http://localhost:8080/api/v1/orders \
   -H 'Content-Type: application/json' \
   -H 'Idempotency-Key: 8f14e45f-ea8d-4b9a-9c1e-2b7d6f0a1c33' \
   -d '{
@@ -97,7 +178,7 @@ curl -X POST http://localhost:<order-port>/api/v1/orders \
       }'
 
 # Follow the saga
-curl http://localhost:<order-port>/api/v1/orders/{id}/status
+curl http://localhost:8080/api/v1/orders/{id}/status
 # -> { "orderId": "...", "state": "AwaitingPayment", "failureReason": null, "startedAtUtc": "..." }
 ```
 
@@ -119,11 +200,14 @@ src/
     OrderFlow.Messaging/             outbox, inbox, Kafka, dispatcher
     OrderFlow.Messaging.RabbitMq/    fanout publisher and consumer
     OrderFlow.ServiceDefaults/       OpenTelemetry, health checks, service discovery
+  Gateway/OrderFlow.Gateway/         YARP reverse proxy, routes in configuration
   Services/
     Order/          Api -> Infrastructure -> Application -> Domain
     Inventory/      stock levels and reservations
     Payment/        pending charges, captures, refunds
     Notification/   what the customer was told
+docker-compose.yml                   infrastructure, plus every service under --profile apps
+.dockerignore                        keeps host build output out of the build context
 tests/
   OrderFlow.Order.UnitTests/         the saga state machine, no infrastructure
   OrderFlow.Messaging.UnitTests/     inbox dedup, dead-letter publisher
