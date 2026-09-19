@@ -1,29 +1,49 @@
-# Fallback path: infrastructure only, no services.
-# Prefer `dotnet run --project src/Aspire/OrderFlow.AppHost` locally.
-# Use this when you want to run ONLY infrastructure and debug services from the IDE,
-# or in CI where Aspire is overkill. Week 3 turns this into Kubernetes manifests.
+# Local only. The SA password below exists ONLY on your machine; Azure uses Entra-only auth (Day 3-4).
+#   docker compose up -d                          -> infrastructure only (debug services from the IDE)
+#   docker compose --profile apps up --build      -> infrastructure + all services in containers
+
+x-service-env: &service-env
+  ASPNETCORE_ENVIRONMENT: Production
+  ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+  ConnectionStrings__kafka: "kafka:29092"
+  Logging__Console__FormatterName: "json"
+
 services:
+  # ---------------- infrastructure ----------------
   kafka:
     image: confluentinc/cp-kafka:7.7.0
-    ports: ["9092:9092"]
+    ports: ["9092:9092", "39092:39092"]
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      # Three client listeners, because "where is the broker?" depends on WHO asks:
+      #   containers in this compose network -> kafka:29092
+      #   your IDE / dotnet run on the host  -> localhost:9092
+      #   pods in Docker Desktop Kubernetes  -> host.docker.internal:39092
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,HOST://0.0.0.0:9092,K8S://0.0.0.0:39092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,HOST://localhost:9092,K8S://host.docker.internal:39092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,HOST:PLAINTEXT,K8S:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      # Auto-create is ON locally for convenience, OFF in prod: it hides typos in topic
-      # names as "empty topic" instead of a loud failure.
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
       CLUSTER_ID: "orderflow-local-cluster"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
 
   rabbitmq:
     image: rabbitmq:3-management
     ports: ["5672:5672", "15672:15672"]
+    environment:
+      # The built-in guest user can only connect from localhost INSIDE the container,
+      # so other containers need a real user.
+      RABBITMQ_DEFAULT_USER: orderflow
+      RABBITMQ_DEFAULT_PASS: orderflow
 
   sql:
     image: mcr.microsoft.com/mssql/server:2022-latest
@@ -31,7 +51,77 @@ services:
     environment:
       ACCEPT_EULA: "Y"
       MSSQL_SA_PASSWORD: "Your_strong_P4ssword!"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
 
   redis:
     image: redis:7-alpine
     ports: ["6379:6379"]
+
+  # ---------------- services (profile: apps) ----------------
+  inventory:
+    profiles: ["apps"]
+    build: { context: ., dockerfile: src/Services/Inventory/OrderFlow.Inventory.Api/Dockerfile }
+    image: orderflow/inventory-api:local
+    environment:
+      <<: *service-env
+      ConnectionStrings__orderflow-inventory: "Server=sql,1433;Database=orderflow-inventory;User Id=sa;Password=Your_strong_P4ssword!;TrustServerCertificate=True"
+      Kestrel__Endpoints__http__Url: "http://+:8080"
+      Kestrel__Endpoints__http__Protocols: "Http1"
+      Kestrel__Endpoints__grpc__Url: "http://+:8081"
+      Kestrel__Endpoints__grpc__Protocols: "Http2"
+    depends_on:
+      kafka: { condition: service_healthy }
+      sql: { condition: service_healthy }
+
+  payment:
+    profiles: ["apps"]
+    build: { context: ., dockerfile: src/Services/Payment/OrderFlow.Payment.Api/Dockerfile }
+    image: orderflow/payment-api:local
+    environment:
+      <<: *service-env
+      ConnectionStrings__orderflow-payments: "Server=sql,1433;Database=orderflow-payments;User Id=sa;Password=Your_strong_P4ssword!;TrustServerCertificate=True"
+    depends_on:
+      kafka: { condition: service_healthy }
+      sql: { condition: service_healthy }
+
+  notification:
+    profiles: ["apps"]
+    build: { context: ., dockerfile: src/Services/Notification/OrderFlow.Notification.Api/Dockerfile }
+    image: orderflow/notification-api:local
+    environment:
+      <<: *service-env
+      ConnectionStrings__orderflow-notifications: "Server=sql,1433;Database=orderflow-notifications;User Id=sa;Password=Your_strong_P4ssword!;TrustServerCertificate=True"
+      ConnectionStrings__rabbitmq: "amqp://orderflow:orderflow@rabbitmq:5672"
+    depends_on:
+      kafka: { condition: service_healthy }
+      sql: { condition: service_healthy }
+      rabbitmq: { condition: service_started }
+
+  order:
+    profiles: ["apps"]
+    build: { context: ., dockerfile: src/Services/Order/OrderFlow.Order.Api/Dockerfile }
+    image: orderflow/order-api:local
+    environment:
+      <<: *service-env
+      ConnectionStrings__orderflow-orders: "Server=sql,1433;Database=orderflow-orders;User Id=sa;Password=Your_strong_P4ssword!;TrustServerCertificate=True"
+      ConnectionStrings__redis: "redis:6379"
+      Inventory__GrpcAddress: "http://inventory:8081"
+    depends_on:
+      inventory: { condition: service_started }
+      kafka: { condition: service_healthy }
+      sql: { condition: service_healthy }
+
+  gateway:
+    profiles: ["apps"]
+    build: { context: ., dockerfile: src/Gateway/OrderFlow.Gateway/Dockerfile }
+    image: orderflow/gateway:local
+    ports: ["8080:8080"]          # the ONLY service published to the host, like production
+    environment:
+      <<: *service-env
+      ReverseProxy__Clusters__order__Destinations__primary__Address: "http://order:8080"
+    depends_on:
+      order: { condition: service_started }
