@@ -32,8 +32,7 @@ public sealed partial class PlaceOrderCommandHandler(
             }
         }
 
-        var availability = await inventory.CheckAvailabilityAsync(
-            [.. request.Lines.Select(l => (l.Sku, l.Quantity))], ct);
+        var availability = await inventory.CheckAvailabilityAsync([.. request.Lines.Select(l => (l.Sku, l.Quantity))], ct);
 
         if (availability is { Known: true, AllAvailable: false })
         {

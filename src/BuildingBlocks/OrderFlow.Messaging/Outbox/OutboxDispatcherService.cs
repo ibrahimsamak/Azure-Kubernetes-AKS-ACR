@@ -59,11 +59,8 @@ public sealed partial class OutboxDispatcherService<TContext>(
         foreach (var message in messages) {
             try
             {
-                var envelope = MessageEnvelope.FromJson(message.Content)
-                        ?? throw new InvalidOperationException("Outbox row content is not a valid envelope.");
-
-                var @event = envelope.Unwrap()
-                        ?? throw new InvalidOperationException($"Unknown event type '{envelope.Type}'.");
+                var envelope = MessageEnvelope.FromJson(message.Content) ?? throw new InvalidOperationException("Outbox row content is not a valid envelope.");
+                var @event = envelope.Unwrap() ?? throw new InvalidOperationException($"Unknown event type '{envelope.Type}'.");
 
                 await publisher.PublishAsync(@event, message.PartitionKey, ct);
                 message.ProcessedOnUtc = DateTime.UtcNow;

@@ -11,23 +11,25 @@ namespace Microsoft.Extensions.Hosting;
 
 public static class Extensions
 {
-    private const string HealthEndpointPath = "/health";
-    private const string AlivenessEndpointPath = "/alive";
+    public const string LivePath = "/health/live";
+    public const string ReadyPath = "/health/ready";
+
+    public const string LiveTag = "live";
+    public const string ReadyTag = "ready";
 
     public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
         builder.ConfigureOpenTelemetry();
-
         builder.AddDefaultHealthChecks();
 
         builder.Services.AddServiceDiscovery();
-
         builder.Services.ConfigureHttpClientDefaults(http =>
         {
             http.AddStandardResilienceHandler();
-
             http.AddServiceDiscovery();
         });
+
+        builder.Services.Configure<HostOptions>(o => o.ShutdownTimeout = TimeSpan.FromSeconds(25));
 
         return builder;
     }
@@ -41,25 +43,18 @@ public static class Extensions
         });
 
         builder.Services.AddOpenTelemetry()
-            .WithMetrics(metrics =>
-            {
-                metrics.AddAspNetCoreInstrumentation()
-                    .AddHttpClientInstrumentation()
-                    .AddRuntimeInstrumentation();
-            })
-            .WithTracing(tracing =>
-            {
-                tracing.AddSource(builder.Environment.ApplicationName)
-                    .AddAspNetCoreInstrumentation(tracing =>
-                        tracing.Filter = context =>
-                            !context.Request.Path.StartsWithSegments(HealthEndpointPath)
-                            && !context.Request.Path.StartsWithSegments(AlivenessEndpointPath)
-                    )
-                    .AddHttpClientInstrumentation();
-            });
+            .WithMetrics(metrics => metrics
+                .AddAspNetCoreInstrumentation()
+                .AddHttpClientInstrumentation()
+                .AddRuntimeInstrumentation())
+            .WithTracing(tracing => tracing
+                .AddSource(builder.Environment.ApplicationName)
+                .AddSource("OrderFlow.Messaging")
+                .AddAspNetCoreInstrumentation(o =>
+                    o.Filter = ctx => !ctx.Request.Path.StartsWithSegments("/health"))
+                .AddHttpClientInstrumentation());
 
         builder.AddOpenTelemetryExporters();
-
         return builder;
     }
 
@@ -78,22 +73,21 @@ public static class Extensions
     public static TBuilder AddDefaultHealthChecks<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
         builder.Services.AddHealthChecks()
-            .AddCheck("self", () => HealthCheckResult.Healthy(), ["live"]);
+            .AddCheck("self", () => HealthCheckResult.Healthy(), [LiveTag]);
 
         return builder;
     }
 
     public static WebApplication MapDefaultEndpoints(this WebApplication app)
     {
-        if (app.Environment.IsDevelopment())
+        app.MapHealthChecks(LivePath, new HealthCheckOptions
         {
-            app.MapHealthChecks(HealthEndpointPath);
-
-            app.MapHealthChecks(AlivenessEndpointPath, new HealthCheckOptions
-            {
-                Predicate = r => r.Tags.Contains("live")
-            });
-        }
+            Predicate = r => r.Tags.Contains(LiveTag)
+        });
+        app.MapHealthChecks(ReadyPath, new HealthCheckOptions
+        {
+            Predicate = r => r.Tags.Contains(ReadyTag)
+        });
 
         return app;
     }
