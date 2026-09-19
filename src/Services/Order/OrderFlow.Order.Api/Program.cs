@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using OrderFlow.Grpc.Inventory;
 using OrderFlow.Order.Application.Abstractions;
 using OrderFlow.Order.Infrastructure.Grpc;
@@ -12,10 +13,13 @@ builder.AddServiceDefaults();
 builder.AddOrderPersistence();
 builder.AddOrderMessaging();
 
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<OrderDbContext>("orders-db", tags: [Extensions.ReadyTag]);
+
 builder.Services
     .AddGrpcClient<InventoryQuery.InventoryQueryClient>(o =>
     {
-        o.Address = new Uri("https://inventory");
+        o.Address = new Uri(builder.Configuration["Inventory:GrpcAddress"] ?? "https://inventory");
     })
     .AddStandardResilienceHandler(o =>
     {
@@ -39,10 +43,14 @@ var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
+    app.UseHttpsRedirection();
 }
 
-app.UseHttpsRedirection();
+if (app.Configuration.GetValue("Database:MigrateOnStartup", true))
+{
+    using var scope = app.Services.CreateScope();
+    await scope.ServiceProvider.GetRequiredService<OrderDbContext>().Database.MigrateAsync();
+}
 
 app.UseAuthorization();
 

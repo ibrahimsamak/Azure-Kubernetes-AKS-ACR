@@ -27,10 +27,13 @@ var notification = builder.AddProject<Projects.OrderFlow_Notification_Api>("noti
     .WithReference(rabbit).WaitFor(rabbit)
     .WithReference(notificationsDb).WaitFor(notificationsDb);
 
-builder.AddProject<Projects.OrderFlow_Order_Api>("order")
+var order = builder.AddProject<Projects.OrderFlow_Order_Api>("order")
     .WithReference(kafka).WaitFor(kafka)
     .WithReference(ordersDb).WaitFor(ordersDb)
-    .WithReference(inventory).WaitFor(inventory)
-    .WithReplicas(1);
+    .WithReference(inventory).WaitFor(inventory);
+
+builder.AddProject<Projects.OrderFlow_Gateway>("gateway")
+    .WithReference(order).WaitFor(order)
+    .WithExternalHttpEndpoints();
 
 builder.Build().Run();

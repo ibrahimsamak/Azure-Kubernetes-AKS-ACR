@@ -16,6 +16,9 @@ builder.Services.AddDbContext<PaymentDbContext>(o =>
     o.UseSqlServer(builder.Configuration.GetConnectionString(PaymentDbContext.ConnectionName),
         sql => sql.EnableRetryOnFailure()));
 
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<PaymentDbContext>("payments-db", tags: [Extensions.ReadyTag]);
+
 builder.Services.AddOrderFlowMessaging<PaymentDbContext>(
     builder.Configuration,
     consumerName: "payment-service",
@@ -32,8 +35,9 @@ var app = builder.Build();
 
 app.MapDefaultEndpoints();
 
-using (var scope = app.Services.CreateScope())
+if (app.Configuration.GetValue("Database:MigrateOnStartup", true))
 {
+    using var scope = app.Services.CreateScope();
     await scope.ServiceProvider.GetRequiredService<PaymentDbContext>().Database.MigrateAsync();
 }
 

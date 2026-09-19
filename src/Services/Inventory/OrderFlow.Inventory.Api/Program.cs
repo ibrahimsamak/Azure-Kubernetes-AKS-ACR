@@ -16,6 +16,9 @@ builder.Services.AddDbContext<InventoryDbContext>(o =>
     o.UseSqlServer(builder.Configuration.GetConnectionString("orderflow-inventory"),
         sql => sql.EnableRetryOnFailure()));
 
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<InventoryDbContext>("inventory-db", tags: [Extensions.ReadyTag]);
+
 builder.Services.AddOrderFlowMessaging<InventoryDbContext>(
     builder.Configuration,
     consumerName: "inventory-service",
@@ -32,5 +35,9 @@ var app = builder.Build();
 app.MapDefaultEndpoints();
 app.MapGrpcService<InventoryQueryService>();
 
-await app.MigrateAndSeedAsync();
+if (app.Configuration.GetValue("Database:MigrateOnStartup", true))
+{
+    await app.MigrateAndSeedAsync();
+}
+
 app.Run();

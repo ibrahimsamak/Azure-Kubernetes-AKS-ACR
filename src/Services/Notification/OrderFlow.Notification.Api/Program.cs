@@ -15,6 +15,9 @@ builder.Services.AddDbContext<NotificationDbContext>(o =>
     o.UseSqlServer(builder.Configuration.GetConnectionString(NotificationDbContext.ConnectionName),
         sql => sql.EnableRetryOnFailure()));
 
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<NotificationDbContext>("notifications-db", tags: [Extensions.ReadyTag]);
+
 builder.Services.AddOrderFlowMessaging<NotificationDbContext>(
     builder.Configuration,
     consumerName: "notification-service",
@@ -30,8 +33,9 @@ var app = builder.Build();
 
 app.MapDefaultEndpoints();
 
-using (var scope = app.Services.CreateScope())
+if (app.Configuration.GetValue("Database:MigrateOnStartup", true))
 {
+    using var scope = app.Services.CreateScope();
     await scope.ServiceProvider.GetRequiredService<NotificationDbContext>().Database.MigrateAsync();
 }
 
