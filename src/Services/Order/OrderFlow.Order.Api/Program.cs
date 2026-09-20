@@ -43,7 +43,9 @@ builder.Services
         o.CircuitBreaker.MinimumThroughput = 10;
         o.CircuitBreaker.BreakDuration = TimeSpan.FromSeconds(15);
 
-        // Total timeout above the per-call deadline so the deadline is what usually fires.
+        // The standard handler requires TotalRequestTimeout > AttemptTimeout (default 10s).
+        // This is a cheap advisory gRPC read, so use tight timeouts: 1s per attempt, 2s total.
+        o.AttemptTimeout.Timeout = TimeSpan.FromSeconds(1);
         o.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(2);
     });
 
