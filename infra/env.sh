@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Usage: source infra/env.sh      (Git Bash or Azure Cloud Shell, from OrderFlow/)
+
+# Git Bash on Windows rewrites "/subscriptions/..." into "C:/Program Files/Git/subscriptions/...".
+# This stops that. Harmless everywhere else.
+export MSYS_NO_PATHCONV=1
+
+export SUFFIX="${SUFFIX:-ibs01}"            # CHANGE ME — lowercase letters/digits, 3-6 chars
+export LOCATION="${LOCATION:-eastus}" # pick the region closest to you that has quota
+
+export RG="rg-orderflow-dev"
+export AKS="aks-orderflow-dev"
+export ACR="acrorderflow${SUFFIX}"          # letters+digits only, globally unique
+export SQL_SERVER="sql-orderflow-${SUFFIX}"
+export EH_NS="evhns-orderflow-${SUFFIX}"
+export SB_NS="sbns-orderflow-${SUFFIX}"
+export REDIS="redis-orderflow-${SUFFIX}"
+export KV="kv-orderflow-${SUFFIX}"          # max 24 chars
+export APIM="apim-orderflow-${SUFFIX}"
+export FUNC="func-orderflow-${SUFFIX}"
+export FUNC_STORAGE="stfunc${SUFFIX}"       # letters+digits only, max 24
+export SWA="swa-orderflow-${SUFFIX}"
+export SWA_LOCATION="centralus"             # Static Web Apps is only offered in a few regions
+
+export K8S_NS="orderflow"
+export SERVICES="order inventory payment notification"
+export DATABASES="orderflow-orders orderflow-inventory orderflow-payments orderflow-notifications"
+export TOPICS="orderflow.orders.v1 orderflow.inventory.v1 orderflow.payments.v1"
