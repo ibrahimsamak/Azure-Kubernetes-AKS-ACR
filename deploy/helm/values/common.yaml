@@ -1,0 +1,4 @@
+env:
+  ASPNETCORE_ENVIRONMENT: "Production"
+  ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+  Logging__Console__FormatterName: "json" # one JSON object per line — what log collectors want

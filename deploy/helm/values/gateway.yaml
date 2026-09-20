@@ -1,0 +1,10 @@
+image:
+  repository: orderflow/gateway
+env:
+  ReverseProxy__Clusters__order__Destinations__primary__Address: "http://order:8080"
+probes:
+  readiness:
+    path: /health/ready
+ingress:
+  enabled: true
+secretEnvFrom: []
