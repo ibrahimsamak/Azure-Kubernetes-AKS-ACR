@@ -1,0 +1,6 @@
+apiVersion: v2
+name: orderflow-service
+description: Generic chart for one OrderFlow .NET service. One release per service.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

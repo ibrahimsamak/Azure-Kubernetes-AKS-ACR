@@ -31,6 +31,7 @@ builder.Services
         o.CircuitBreaker.MinimumThroughput = 10;
         o.CircuitBreaker.BreakDuration = TimeSpan.FromSeconds(15);
 
+        o.AttemptTimeout.Timeout = TimeSpan.FromSeconds(1);
         o.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(2);
     });
 
