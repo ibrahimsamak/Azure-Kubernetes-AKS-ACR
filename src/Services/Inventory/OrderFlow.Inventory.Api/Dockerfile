@@ -15,7 +15,8 @@ COPY src/Services/Inventory/ src/Services/Inventory/
 RUN dotnet publish src/Services/Inventory/OrderFlow.Inventory.Api/OrderFlow.Inventory.Api.csproj \
     -c Release --no-restore -o /app/publish /p:UseAppHost=false
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled AS final
+# -extra adds ICU + tzdata that Microsoft.Data.SqlClient requires (no invariant mode).
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra AS final
 WORKDIR /app
 COPY --from=build /app/publish .
 USER $APP_UID
