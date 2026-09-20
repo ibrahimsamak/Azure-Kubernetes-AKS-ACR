@@ -9,6 +9,9 @@
     <Project Path="src/BuildingBlocks/OrderFlow.Messaging/OrderFlow.Messaging.csproj" />
     <Project Path="src/BuildingBlocks/OrderFlow.ServiceDefaults/OrderFlow.ServiceDefaults.csproj" />
   </Folder>
+  <Folder Name="/Gateway/">
+    <Project Path="src/Gateway/OrderFlow.Gateway/OrderFlow.Gateway.csproj" />
+  </Folder>
   <Folder Name="/Services/" />
   <Folder Name="/Services/Inventory/">
     <Project Path="src/Services/Inventory/OrderFlow.Inventory.Api/OrderFlow.Inventory.Api.csproj" />

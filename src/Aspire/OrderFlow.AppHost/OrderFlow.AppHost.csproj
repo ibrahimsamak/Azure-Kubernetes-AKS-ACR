@@ -5,6 +5,7 @@
     <ProjectReference Include="..\..\Services\Inventory\OrderFlow.Inventory.Api\OrderFlow.Inventory.Api.csproj" />
     <ProjectReference Include="..\..\Services\Payment\OrderFlow.Payment.Api\OrderFlow.Payment.Api.csproj" />
     <ProjectReference Include="..\..\Services\Notification\OrderFlow.Notification.Api\OrderFlow.Notification.Api.csproj" />
+    <ProjectReference Include="..\..\Gateway\OrderFlow.Gateway\OrderFlow.Gateway.csproj" />
   </ItemGroup>
 
   <ItemGroup>
