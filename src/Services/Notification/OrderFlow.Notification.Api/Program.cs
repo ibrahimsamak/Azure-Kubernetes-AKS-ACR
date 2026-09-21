@@ -6,10 +6,25 @@ using OrderFlow.Messaging.DependencyInjection;
 using OrderFlow.Notification.Api.Handlers;
 using OrderFlow.Notification.Api.Persistence;
 using OrderFlow.Notification.Api.RabbitMq;
+using Azure.Core;
+using Azure.Messaging.ServiceBus;
+using OrderFlow.Notification.Api.ServiceBus;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();     // OTel, health, service discovery
+builder.AddOrderFlowAzure();     // NEW
+
+var serviceBusNamespace = builder.Configuration["ServiceBus:FullyQualifiedNamespace"]
+    ?? throw new InvalidOperationException("ServiceBus:FullyQualifiedNamespace is not configured.");
+
+// ServiceBusClient and ServiceBusSender are thread-safe and meant to be singletons:
+// they hold the AMQP connection. Creating one per message is a classic performance bug.
+builder.Services.AddSingleton(sp =>
+    new ServiceBusClient(serviceBusNamespace, sp.GetRequiredService<TokenCredential>()));
+builder.Services.AddSingleton(sp =>
+    sp.GetRequiredService<ServiceBusClient>().CreateSender("notifications"));
+builder.Services.AddSingleton<ServiceBusNotificationPublisher>();
 
 builder.Services.AddDbContext<NotificationDbContext>(o =>
     o.UseSqlServer(builder.Configuration.GetConnectionString(NotificationDbContext.ConnectionName),

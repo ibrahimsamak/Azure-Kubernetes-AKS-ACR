@@ -2,12 +2,13 @@ namespace OrderFlow.Notification.Api.Handlers;
 
 using OrderFlow.Contracts.Orders;
 using OrderFlow.Messaging.Abstractions;
-using OrderFlow.Messaging.RabbitMq;
 using OrderFlow.Notification.Api.Persistence;
+using OrderFlow.Notification.Api.ServiceBus;
+
 
 public sealed partial class OrderConfirmedHandler(
     NotificationDbContext db,
-    RabbitMqEventPublisher rabbit,
+    ServiceBusNotificationPublisher publisher,
     ILogger<OrderConfirmedHandler> logger) : IIntegrationEventHandler<OrderConfirmed>
 {
     private static readonly string[] ConfirmationChannels = ["email", "sms"];
@@ -24,17 +25,21 @@ public sealed partial class OrderConfirmedHandler(
             Body = $"Your order {e.OrderId} is confirmed."
         });
 
-        // Kafka carried the FACT ("the order was confirmed") — a durable, replayable,
-        // ordered record. RabbitMQ now carries the TASK ("send an email, an SMS and a push")
-        // — work to be distributed, acked per message, and dead-lettered if a channel fails.
-        // Same information, different job, different tool.
-        await rabbit.PublishAsync(new
-        {
-            e.OrderId,
-            e.CustomerId,
-            Kind = "OrderConfirmed",
-            Channels = ConfirmationChannels
-        }, ct);
+        // Kafka carried the FACT; Service Bus carries the TASK — same split as Week 2's RabbitMQ.
+        // This send happens BEFORE the dispatcher commits the DB transaction. If we crash after
+        // sending but before committing, Kafka redelivers, we send again, and Service Bus
+        // duplicate detection (same MessageId) drops the second copy.
+
+        await publisher.PublishAsync(
+            new NotificationRequested(e.OrderId, e.CustomerId, "OrderConfirmed", ConfirmationChannels), ct
+        );   
+        // await rabbit.PublishAsync(new
+        // {
+        //     e.OrderId,
+        //     e.CustomerId,
+        //     Kind = "OrderConfirmed",
+        //     Channels = ConfirmationChannels
+        // }, ct);
 
         LogQueued(logger, e.OrderId);
     }
