@@ -1,4 +1,5 @@
 
+using Azure.Core;
 using System.Diagnostics;
 using Confluent.Kafka;
 using Microsoft.Extensions.Logging;
@@ -19,39 +20,35 @@ public sealed partial class KafkaEventPublisher : IEventPublisher, IDisposable
     private int _disposed;
 
 
-    public KafkaEventPublisher(IOptions<KafkaOptions> options, ILogger<KafkaEventPublisher> logger)
+    public KafkaEventPublisher(IOptions<KafkaOptions> options, ILogger<KafkaEventPublisher> logger, TokenCredential? credential = null)
     {
         _logger = logger;
-        _producer = new ProducerBuilder<string, string>(new ProducerConfig
-        {
-            BootstrapServers = options.Value.BootstrapServers,
+        var o = options.Value;
 
-            // acks=all: the leader waits for all in-sync replicas. Slower, but a broker
-            // failure cannot silently lose an accepted order. In finance this is non-negotiable.
-            Acks = Acks.All,
+    var config = new ProducerConfig
+    {
+        Acks = Acks.All,
+        EnableIdempotence = o.EnableIdempotence,
+        MessageSendMaxRetries = 5,
+        RetryBackoffMs = 200,
+        MessageTimeoutMs = 30_000,
+        LingerMs = 5,
+        CompressionType = o.CompressionType
+    };
+    AzureKafkaAuth.Apply(config, o);             // NEW — sets BootstrapServers (+ SASL in Azure)
 
-            // Idempotent producer: the broker dedups producer retries, so a retry storm
-            // does not multiply messages in the log. (This is NOT end-to-end exactly-once —
-            // it only covers producer-to-broker retries. Consumers still need the Inbox.)
-            EnableIdempotence = true,
+    var builder = new ProducerBuilder<string, string>(config)
+        .SetLogHandler((_, m) => LogProducerClientMessage(_logger, m.Message));
 
-            MessageSendMaxRetries = 5,
-            RetryBackoffMs = 200,
-            // Bound how long a send can block before we consider the broker unavailable.
-            MessageTimeoutMs = 30_000,
-            // Small linger batches messages without adding meaningful latency.
-            LingerMs = 5,
-            CompressionType = CompressionType.Snappy
 
-        })
-        .SetLogHandler((_, m) =>
-        {
-            if (_logger.IsEnabled(LogLevel.Debug))
-            {
-                LogProducerClientMessage(_logger, m.Message);
-            }
-        })
-        .Build();
+    if (o.AuthMode == KafkaAuthMode.AzureAd)     // NEW
+    {
+        ArgumentNullException.ThrowIfNull(credential);
+        builder.SetOAuthBearerTokenRefreshHandler((client, _) => AzureKafkaAuth.RefreshToken(client, credential, o));
+    }
+    
+    _producer = builder.Build();
+
     }
 
     public Task PublishAsync(IntegrationEvent @event, string partitionKey, CancellationToken ct = default)
