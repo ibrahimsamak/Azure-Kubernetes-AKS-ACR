@@ -27,7 +27,9 @@ RUN dotnet publish src/Services/Order/OrderFlow.Order.Api/OrderFlow.Order.Api.cs
 
 # ============ runtime stage ============
 # Chiseled = Ubuntu with only what .NET needs: no shell, no apt, non-root user built in.
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled AS final
+# -extra adds ICU + tzdata, which Microsoft.Data.SqlClient requires (it refuses to run
+# in globalization-invariant mode). Plain chiseled has no ICU -> SQL connections throw.
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra AS final
 WORKDIR /app
 COPY --from=build /app/publish .
 
