@@ -14,7 +14,7 @@ public sealed partial class KafkaTopicProvisioner(
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         var o = options.Value;
-        if (o.ManagedTopics.Length == 0) { return; }
+        if (!o.ProvisionTopics || o.ManagedTopics.Length == 0) { return; }
 
         using var admin = new AdminClientBuilder(
             new AdminClientConfig { BootstrapServers = o.BootstrapServers }).Build();
