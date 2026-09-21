@@ -11,7 +11,13 @@ using OrderFlow.Payment.Api.Persistence;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();     // OTel, health, service discovery
+builder.AddOrderFlowAzure();     // NEW
 
+builder.Services.AddOptions<PaymentGatewayOptions>()
+    .Bind(builder.Configuration.GetSection(PaymentGatewayOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+    
 builder.Services.AddDbContext<PaymentDbContext>(o =>
     o.UseSqlServer(builder.Configuration.GetConnectionString(PaymentDbContext.ConnectionName),
         sql => sql.EnableRetryOnFailure()));   // transient SQL faults are normal in cloud DBs
