@@ -1,0 +1,66 @@
+# ---- image ----
+image:
+  registry: ""
+  repository: ""
+  tag: "local"
+  pullPolicy: IfNotPresent
+
+# ---- ports ----
+containerPort: 8080
+extraPorts: []
+
+# ---- config ----
+env: {}
+secretEnvFrom: []
+
+workloadIdentity:
+  enabled: false
+  clientId: ""
+
+# ---- scaling ----
+replicaCount: 1
+autoscaling:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 70
+
+pdb:
+  enabled: false
+
+# ---- resources ----
+# requests: what the scheduler reserves, and the base the HPA percentage is computed from.
+# limits.memory: hard cap; exceeding it = OOMKilled. .NET sizes its GC heap from this cgroup limit.
+# NO cpu limit on purpose: CPU limits cause CFS throttling (latency spikes) even when the node
+# has idle CPU. Requests already guarantee our share under contention.
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 512Mi
+
+# ---- probes ----
+probes:
+  startup:
+    path: /health/live
+    periodSeconds: 5
+    failureThreshold: 30
+  liveness:
+    path: /health/live
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 3
+  readiness:
+    path: /health/ready
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+terminationGracePeriodSeconds: 30
+
+# ---- ingress (gateway only) ----
+ingress:
+  enabled: false
+  className: ""
+  path: /api
