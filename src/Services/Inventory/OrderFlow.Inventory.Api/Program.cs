@@ -11,6 +11,8 @@ using OrderFlow.Messaging.DependencyInjection;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();     // OTel, health, service discovery
+builder.AddOrderFlowAzure();     // NEW
+
 
 builder.Services.AddDbContext<InventoryDbContext>(o =>
     o.UseSqlServer(builder.Configuration.GetConnectionString("orderflow-inventory"),
