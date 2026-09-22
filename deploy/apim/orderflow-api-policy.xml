@@ -1,0 +1,80 @@
+<policies>
+    <inbound>
+        <base />
+
+        <!-- 1. CORS first: browsers send an OPTIONS preflight with no subscription key or token.
+                The cors policy answers it here, before anything else can reject it. -->
+        <cors allow-credentials="false">
+            <allowed-origins>
+                <origin>{{spa-origin}}</origin>
+                <origin>http://localhost:4200</origin>
+            </allowed-origins>
+            <allowed-methods preflight-result-max-age="300">
+                <method>GET</method>
+                <method>POST</method>
+                <method>OPTIONS</method>
+            </allowed-methods>
+            <allowed-headers>
+                <header>Content-Type</header>
+                <header>Authorization</header>
+                <header>Idempotency-Key</header>
+                <header>Ocp-Apim-Subscription-Key</header>
+            </allowed-headers>
+            <expose-headers>
+                <header>Location</header>
+                <header>X-Correlation-Id</header>
+            </expose-headers>
+        </cors>
+
+        <!-- 2. Rate limit per subscription: 30 calls / 60 s. Returns 429 + Retry-After. -->
+        <rate-limit calls="30" renewal-period="60" />
+
+        <!-- 3. JWT validation, switchable via the named value. Accepts v1 and v2 Entra tokens. -->
+        <choose>
+            <when condition="@("{{require-jwt}}" == "true")">
+                <validate-jwt header-name="Authorization" require-scheme="Bearer"
+                              failed-validation-httpcode="401"
+                              failed-validation-error-message="Missing or invalid access token.">
+                    <openid-config url="https://login.microsoftonline.com/{{tenant-id}}/v2.0/.well-known/openid-configuration" />
+                    <audiences>
+                        <audience>{{api-client-id}}</audience>
+                        <audience>api://{{api-client-id}}</audience>
+                    </audiences>
+                    <issuers>
+                        <issuer>https://login.microsoftonline.com/{{tenant-id}}/v2.0</issuer>
+                        <issuer>https://sts.windows.net/{{tenant-id}}/</issuer>
+                    </issuers>
+                </validate-jwt>
+            </when>
+        </choose>
+
+        <!-- 4. Correlation id: reuse the caller's or mint one. Flows into service logs (and Week 4 traces). -->
+        <set-header name="X-Correlation-Id" exists-action="skip">
+            <value>@(context.RequestId.ToString())</value>
+        </set-header>
+
+        <!-- 5. The backend must not trust a client-supplied key; it's APIM's business. -->
+        <set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" />
+    </inbound>
+
+    <backend>
+        <base />
+    </backend>
+
+    <outbound>
+        <base />
+        <!-- Response transformation: don't advertise the stack. -->
+        <set-header name="Server" exists-action="delete" />
+        <set-header name="X-Powered-By" exists-action="delete" />
+        <set-header name="X-Correlation-Id" exists-action="override">
+            <value>@(context.RequestId.ToString())</value>
+        </set-header>
+    </outbound>
+
+    <on-error>
+        <base />
+        <set-header name="X-Correlation-Id" exists-action="override">
+            <value>@(context.RequestId.ToString())</value>
+        </set-header>
+    </on-error>
+</policies>

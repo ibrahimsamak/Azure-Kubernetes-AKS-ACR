@@ -5,6 +5,11 @@
 # This stops that. Harmless everywhere else.
 export MSYS_NO_PATHCONV=1
 
+# The Windows az CLI prints CRLF (also when called from WSL), so $(az ... -o tsv) captures a
+# trailing "\r" that breaks IDs and scopes. Strip it; harmless with a native Linux az.
+# With pipefail set, az's exit status still propagates.
+az() { command az "$@" | tr -d '\r'; }
+
 export SUFFIX="${SUFFIX:-ibs01}"            # CHANGE ME — lowercase letters/digits, 3-6 chars
 export LOCATION="${LOCATION:-eastus}" # pick the region closest to you that has quota
 
