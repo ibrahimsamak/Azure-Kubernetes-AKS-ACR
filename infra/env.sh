@@ -2,6 +2,8 @@
 
 export MSYS_NO_PATHCONV=1
 
+az() { command az "$@" | tr -d '\r'; }
+
 export SUFFIX="${SUFFIX:-ibs01}"
 export LOCATION="${LOCATION:-eastus}"
 

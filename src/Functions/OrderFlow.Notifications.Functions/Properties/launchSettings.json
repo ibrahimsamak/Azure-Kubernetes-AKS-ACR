@@ -1,0 +1,9 @@
+{
+  "profiles": {
+    "OrderFlow_Notifications_Functions": {
+      "commandName": "Project",
+      "commandLineArgs": "--port 7081",
+      "launchBrowser": false
+    }
+  }
+}
