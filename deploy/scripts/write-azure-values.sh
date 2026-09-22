@@ -31,7 +31,9 @@ env:
   ConnectionStrings__kafka: "${EH_NS}.servicebus.windows.net:9093"
   Kafka__AuthMode: "AzureAd"
   Kafka__ProvisionTopics: "false"
-  Kafka__CompressionType: "Gzip"
+  # Event Hubs Standard rejects compressed Kafka batches ("Message format on broker does not
+  # support request"). The payloads are small JSON, so compression buys almost nothing.
+  Kafka__CompressionType: "None"
 
   # Redis with Entra ID (only Order reads it)
   Redis__HostName: "${REDIS_HOST:+${REDIS_HOST}:10000}"

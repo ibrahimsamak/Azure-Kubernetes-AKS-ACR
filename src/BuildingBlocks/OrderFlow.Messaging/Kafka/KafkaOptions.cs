@@ -39,7 +39,7 @@ public sealed class KafkaOptions
     // </summary>
     public bool ProvisionTopics { get; set; } = true;
 
-    // <summary>Snappy locally. Gzip on Event Hubs (the compression codec it documents support for).</summary>
+    // <summary>Snappy locally. None on Event Hubs: the Standard tier rejects compressed batches.</summary>
     public CompressionType CompressionType { get; set; } = CompressionType.Snappy;
     /// <summary>Kept configurable: if a broker ever rejects idempotent producers, turn it off —
     /// the Inbox already makes consumers safe against the duplicates idempotence prevents.</summary>
