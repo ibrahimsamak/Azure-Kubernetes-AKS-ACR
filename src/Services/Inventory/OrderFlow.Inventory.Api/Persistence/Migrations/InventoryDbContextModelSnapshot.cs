@@ -48,7 +48,6 @@ namespace OrderFlow.Inventory.Api.Persistence.Migrations
             modelBuilder.Entity("OrderFlow.Inventory.Api.Domain.StockReservation", b =>
                 {
                     b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime>("CreatedAtUtc")

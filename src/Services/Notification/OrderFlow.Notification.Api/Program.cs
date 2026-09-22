@@ -5,7 +5,6 @@ using OrderFlow.Messaging.Abstractions;
 using OrderFlow.Messaging.DependencyInjection;
 using OrderFlow.Notification.Api.Handlers;
 using OrderFlow.Notification.Api.Persistence;
-using OrderFlow.Notification.Api.RabbitMq;
 using Azure.Core;
 using Azure.Messaging.ServiceBus;
 using OrderFlow.Notification.Api.ServiceBus;
@@ -36,8 +35,6 @@ builder.Services.AddOrderFlowMessaging<NotificationDbContext>(
     consumerName: "notification-service",
     subscribeTopics: [Topics.Orders],
     ownedTopics: []);
-
-builder.Services.AddNotificationFanout(builder.Configuration);
 
 builder.Services.AddScoped<IIntegrationEventHandler<OrderConfirmed>, OrderConfirmedHandler>();
 builder.Services.AddScoped<IIntegrationEventHandler<OrderCancelled>, OrderCancelledHandler>();

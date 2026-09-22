@@ -42,6 +42,8 @@ public sealed class InventoryDbContext(DbContextOptions<InventoryDbContext> opti
             b.ToTable("StockReservations");
             b.HasKey(x => x.Id);
 
+            b.Property(x => x.Id).ValueGeneratedNever();
+
             b.HasIndex(x => x.OrderId);
         });
     }
