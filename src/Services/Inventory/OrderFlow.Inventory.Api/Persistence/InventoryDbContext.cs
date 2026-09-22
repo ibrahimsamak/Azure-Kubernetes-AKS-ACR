@@ -48,6 +48,12 @@ public sealed class InventoryDbContext(DbContextOptions<InventoryDbContext> opti
             b.ToTable("StockReservations");
             b.HasKey(x => x.Id);
 
+            // The id is set in code (Guid.CreateVersion7). Without this, EF treats a reservation
+            // added to an already tracked StockItem as EXISTING (non-default key = "from the
+            // database"), sends an UPDATE instead of an INSERT, hits 0 rows and throws
+            // DbUpdateConcurrencyException on every attempt.
+            b.Property(x => x.Id).ValueGeneratedNever();
+
             // Every handler looks a reservation up by the order it belongs to.
             b.HasIndex(x => x.OrderId);
         });
