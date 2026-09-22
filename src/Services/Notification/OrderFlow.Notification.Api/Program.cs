@@ -5,7 +5,6 @@ using OrderFlow.Messaging.Abstractions;
 using OrderFlow.Messaging.DependencyInjection;
 using OrderFlow.Notification.Api.Handlers;
 using OrderFlow.Notification.Api.Persistence;
-using OrderFlow.Notification.Api.RabbitMq;
 using Azure.Core;
 using Azure.Messaging.ServiceBus;
 using OrderFlow.Notification.Api.ServiceBus;
@@ -30,7 +29,7 @@ builder.Services.AddDbContext<NotificationDbContext>(o =>
     o.UseSqlServer(builder.Configuration.GetConnectionString(NotificationDbContext.ConnectionName),
         sql => sql.EnableRetryOnFailure()));
 
-// Readiness = "can this pod reach its own database?". Kafka and RabbitMQ are deliberately
+// Readiness = "can this pod reach its own database?". Kafka and Service Bus are deliberately
 // not here: a broker blip must not take every pod out of the Service's endpoints.
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<NotificationDbContext>("notifications-db", tags: [Extensions.ReadyTag]);
@@ -43,9 +42,6 @@ builder.Services.AddOrderFlowMessaging<NotificationDbContext>(
     consumerName: "notification-service",      // Kafka group id AND Inbox discriminator
     subscribeTopics: [Topics.Orders],
     ownedTopics: []);
-
-// Kafka carries the FACT, RabbitMQ carries the TASK.
-builder.Services.AddNotificationFanout(builder.Configuration);
 
 // ---- Handlers: registering one is how you subscribe to an event type ----
 builder.Services.AddScoped<IIntegrationEventHandler<OrderConfirmed>, OrderConfirmedHandler>();

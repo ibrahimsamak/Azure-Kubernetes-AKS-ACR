@@ -32,14 +32,7 @@ public sealed partial class OrderConfirmedHandler(
 
         await publisher.PublishAsync(
             new NotificationRequested(e.OrderId, e.CustomerId, "OrderConfirmed", ConfirmationChannels), ct
-        );   
-        // await rabbit.PublishAsync(new
-        // {
-        //     e.OrderId,
-        //     e.CustomerId,
-        //     Kind = "OrderConfirmed",
-        //     Channels = ConfirmationChannels
-        // }, ct);
+        );
 
         LogQueued(logger, e.OrderId);
     }

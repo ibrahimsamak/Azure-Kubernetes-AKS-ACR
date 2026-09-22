@@ -21,7 +21,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\..\BuildingBlocks\OrderFlow.Messaging\OrderFlow.Messaging.csproj" />
     <ProjectReference Include="..\..\..\BuildingBlocks\OrderFlow.ServiceDefaults\OrderFlow.ServiceDefaults.csproj" />
-    <ProjectReference Include="..\..\..\BuildingBlocks\OrderFlow.Messaging.RabbitMq\OrderFlow.Messaging.RabbitMq.csproj" />
   </ItemGroup>
 
 </Project>
