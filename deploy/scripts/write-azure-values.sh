@@ -27,7 +27,7 @@ env:
   ConnectionStrings__kafka: "${EH_NS}.servicebus.windows.net:9093"
   Kafka__AuthMode: "AzureAd"
   Kafka__ProvisionTopics: "false"
-  Kafka__CompressionType: "Gzip"
+  Kafka__CompressionType: "None"
 
   Redis__HostName: "${REDIS_HOST:+${REDIS_HOST}:10000}"
 

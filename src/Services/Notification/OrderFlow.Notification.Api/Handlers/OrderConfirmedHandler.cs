@@ -26,7 +26,7 @@ public sealed partial class OrderConfirmedHandler(
 
         await publisher.PublishAsync(
             new NotificationRequested(e.OrderId, e.CustomerId, "OrderConfirmed", ConfirmationChannels), ct
-        );   
+        );
 
         LogQueued(logger, e.OrderId);
     }
