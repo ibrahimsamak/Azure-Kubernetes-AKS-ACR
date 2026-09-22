@@ -1,0 +1,13 @@
+image:
+  pullPolicy: Never
+
+autoscaling:
+  maxReplicas: 2
+
+env:
+  ConnectionStrings__kafka: "host.docker.internal:39092"
+  ConnectionStrings__redis: "host.docker.internal:6379"
+  ConnectionStrings__rabbitmq: "amqp://orderflow:orderflow@host.docker.internal:5672"
+
+secretEnvFrom:
+  - orderflow-local-sql
