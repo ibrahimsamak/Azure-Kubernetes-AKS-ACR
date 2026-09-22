@@ -1,5 +1,6 @@
 namespace OrderFlow.Messaging.Kafka;
 
+using Azure.Core;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
@@ -15,7 +16,8 @@ public sealed partial class KafkaConsumerHost(
     IOptions<KafkaOptions> options,
     IServiceScopeFactory scopeFactory,
     ILogger<KafkaConsumerHost> logger,
-    string[] topics) : BackgroundService
+    string[] topics,
+    TokenCredential? credential = null) : BackgroundService
 {
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -26,7 +28,7 @@ public sealed partial class KafkaConsumerHost(
     private async Task ConsumeLoop(CancellationToken ct)
     {
         var o = options.Value;
-        using var consumer = new ConsumerBuilder<string, string>(new ConsumerConfig
+        var config = new ConsumerConfig
         {
             BootstrapServers = o.BootstrapServers,
 
@@ -41,11 +43,20 @@ public sealed partial class KafkaConsumerHost(
             SessionTimeoutMs = 45_000,
 
             PartitionAssignmentStrategy = PartitionAssignmentStrategy.CooperativeSticky
-        })
+        };
+        AzureKafkaAuth.Apply(config, o);
+
+        var consumerBuilder = new ConsumerBuilder<string, string>(config)
         .SetErrorHandler((_, e) => LogConsumerError(logger, e.Reason))
         .SetPartitionsAssignedHandler((_, parts) => LogPartitionsAssigned(logger, parts))
-        .SetPartitionsRevokedHandler((_, parts) => LogPartitionsRevoked(logger, parts))
-        .Build();
+        .SetPartitionsRevokedHandler((_, parts) => LogPartitionsRevoked(logger, parts));
+
+        if (o.AuthMode == KafkaAuthMode.AzureAd)
+        {
+            ArgumentNullException.ThrowIfNull(credential);
+            consumerBuilder.SetOAuthBearerTokenRefreshHandler((client, _) => AzureKafkaAuth.RefreshToken(client, credential, o));
+        }
+        using var consumer = consumerBuilder.Build();
 
         consumer.Subscribe(topics);
         LogSubscribed(logger, o.ConsumerGroupId, topics);

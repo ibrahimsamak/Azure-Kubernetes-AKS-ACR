@@ -2,12 +2,12 @@ namespace OrderFlow.Notification.Api.Handlers;
 
 using OrderFlow.Contracts.Orders;
 using OrderFlow.Messaging.Abstractions;
-using OrderFlow.Messaging.RabbitMq;
 using OrderFlow.Notification.Api.Persistence;
+using OrderFlow.Notification.Api.ServiceBus;
 
 public sealed partial class OrderConfirmedHandler(
     NotificationDbContext db,
-    RabbitMqEventPublisher rabbit,
+    ServiceBusNotificationPublisher publisher,
     ILogger<OrderConfirmedHandler> logger) : IIntegrationEventHandler<OrderConfirmed>
 {
     private static readonly string[] ConfirmationChannels = ["email", "sms"];
@@ -24,13 +24,9 @@ public sealed partial class OrderConfirmedHandler(
             Body = $"Your order {e.OrderId} is confirmed."
         });
 
-        await rabbit.PublishAsync(new
-        {
-            e.OrderId,
-            e.CustomerId,
-            Kind = "OrderConfirmed",
-            Channels = ConfirmationChannels
-        }, ct);
+        await publisher.PublishAsync(
+            new NotificationRequested(e.OrderId, e.CustomerId, "OrderConfirmed", ConfirmationChannels), ct
+        );   
 
         LogQueued(logger, e.OrderId);
     }

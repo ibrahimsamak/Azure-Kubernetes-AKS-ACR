@@ -9,6 +9,7 @@ using Polly;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
+builder.AddOrderFlowAzure();
 
 builder.AddOrderPersistence();
 builder.AddOrderMessaging();

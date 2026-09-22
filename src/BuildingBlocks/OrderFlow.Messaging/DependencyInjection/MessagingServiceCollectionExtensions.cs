@@ -1,5 +1,6 @@
 namespace OrderFlow.Messaging.DependencyInjection;
 
+using Azure.Core;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -25,7 +26,9 @@ public static class MessagingServiceCollectionExtensions
         EventTypeRegistry.RegisterAssembly(typeof(IntegrationEvent).Assembly);
 
         services.Configure<KafkaOptions>(o =>
-        {
+        {   
+            configuration.GetSection(KafkaOptions.SectionName).Bind(o);
+
             o.BootstrapServers = configuration.GetConnectionString("kafka") ?? "localhost:9092";
             o.ConsumerGroupId = consumerName;
             o.ManagedTopics = ownedTopics;
@@ -56,7 +59,8 @@ public static class MessagingServiceCollectionExtensions
                 sp.GetRequiredService<IOptions<KafkaOptions>>(),
                 sp.GetRequiredService<IServiceScopeFactory>(),
                 sp.GetRequiredService<ILogger<KafkaConsumerHost>>(),
-                subscribeTopics));
+                subscribeTopics,
+                sp.GetService<TokenCredential>()));
         }
 
         return services;
