@@ -480,3 +480,7 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Generated per environment by deploy/scripts/write-azure-values.sh: hostnames only, but
+# environment-specific, so it never belongs in git.
+deploy/helm/values/azure.generated.yaml
