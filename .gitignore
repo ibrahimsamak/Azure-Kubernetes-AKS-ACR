@@ -347,3 +347,5 @@ $RECYCLE.BIN/
 *.lnk
 
 *.swp
+
+deploy/helm/values/azure.generated.yaml
