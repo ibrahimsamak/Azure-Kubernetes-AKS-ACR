@@ -80,25 +80,6 @@ later changes one route here instead of every caller:
 Destinations are resolved through service discovery, so `http://order` is a logical name that
 Aspire resolves locally and that is ordinary DNS anywhere it runs as a deployed service.
 
-## Containers
-
-Each service builds to its own image from the repository root as build context. The build is
-multi-stage and the stages are split on purpose:
-
-- The restore layer copies **only** the `.csproj` files the service transitively needs, then
-  restores. Package resolution depends on nothing else, so editing C# never re-downloads NuGet —
-  the expensive layer sits above the one that changes every few minutes.
-- The runtime stage starts from `aspnet:10.0-noble-chiseled` and copies in just the publish
-  output. No SDK, no source, no shell, no package manager: nothing to pivot to if the process is
-  compromised. Roughly 110 MB against the 800 MB build image, running as a non-root user.
-
-Nothing environment-specific is baked in. Connection strings, the gRPC address Order dials and
-Inventory's listener configuration all arrive as environment variables, so the same image runs
-locally and anywhere else unchanged.
-
-Inventory listens on two ports because gRPC needs HTTP/2 and there is no TLS inside the network
-to negotiate it with: 8080 is HTTP/1.1 for REST and probes, 8081 is HTTP/2 for gRPC.
-
 ## Health
 
 Two endpoints, mapped in every environment, answering two different questions:
@@ -184,6 +165,37 @@ environment.
 Each service still validates the token itself. The ingress IP is public and `kubectl port-forward`
 reaches any pod, so the edge is a first line of defence, not the only one.
 
+### The web app
+
+[`web/orderflow-web`](web/orderflow-web) is a small Angular 22 single-page app, hosted on **Azure
+Static Web Apps**, that places an order through APIM and shows the saga as it happens.
+
+![The OrderFlow web app: an order placed at 29.99 moves through Pending, AwaitingStock and AwaitingPayment to Confirmed](img/Screenshot.png)
+
+- **One standalone component, no router.** `OrderPage` holds the form and the result, and its state
+  lives in signals (`busy`, `error`, `status`, `history`).
+- **Idempotent submit.** Each click sends a new `Idempotency-Key` (`crypto.randomUUID()`), so a
+  retry or a double-click of the *same* submit can't create a second order.
+- **Every saga step, not just the result.** The `202 Accepted` already says `Pending`, so that shows
+  right away. The app then polls `/status` until the saga reaches `Confirmed` or `Cancelled`, and
+  lists each state change with its time. `distinctUntilChanged` keeps it to one line per state.
+- **Polling within APIM's rate limit.** The limit is 30 calls a minute per subscription. Polling
+  once a second would use that up on a single order, so the app backs off (1 s, 2 s, 4 s, then
+  5 s): a saga that settles in 10 s costs about four calls. A `429` is handled by waiting for
+  `Retry-After` and polling again, because the order itself hasn't failed.
+- **The failure path from the UI.** A unit price of **13.13** makes the fake payment gateway
+  decline, so you can watch `Compensating` → `Cancelled` in the browser.
+- **Helpful errors.** A status of `0` in the browser almost always means CORS, so the page says
+  "check APIM spa-origin" instead of showing a bare error.
+- **Static Web Apps config.** [`staticwebapp.config.json`](web/orderflow-web/public/staticwebapp.config.json)
+  sends unknown routes to `index.html` and adds `nosniff` and a strict referrer policy to every
+  response.
+
+The APIM subscription key is not in git: `apimSubscriptionKey` in `src/environments/` is empty.
+Paste the key from APIM (**Subscriptions**) before running or building, and don't commit it. It
+still isn't a security boundary: the built JavaScript contains it, so it only identifies the app
+for rate limiting and analytics. Signing in (MSAL + a bearer token checked at every hop) is the next step.
+
 ### Notification fan-out
 
 Kafka carries the **fact** (`OrderConfirmed`); Service Bus carries the **task** (send an email,
@@ -226,8 +238,11 @@ Only the gateway has an ingress. Everything else is a `ClusterIP` Service.
 .NET 10 · ASP.NET Core · EF Core (SQL Server) · Kafka · gRPC · YARP · .NET Aspire · Docker ·
 OpenTelemetry · xUnit · Testcontainers · PactNet
 
+**Web:** Angular 22 (standalone components, signals) · RxJS · TypeScript
+
 **Azure:** AKS · Helm · ACR · API Management · Event Hubs · Service Bus · Azure Functions
-(isolated worker) · Azure SQL (serverless) · Key Vault · Entra ID Workload Identity
+(isolated worker) · Azure SQL (serverless) · Key Vault · Entra ID Workload Identity · Static Web
+Apps
 
 ## Running it
 
@@ -322,6 +337,22 @@ KEY=<APIM subscription key> bash deploy/scripts/test-day5.sh
 Locally, Notification publishes to Service Bus too. Point it at the Azure namespace with
 `ServiceBus__FullyQualifiedNamespace`; after `az login`, `DefaultAzureCredential` uses your identity.
 
+### The web app
+
+Requires Node.js and npm.
+
+```bash
+cd web/orderflow-web
+npm ci
+# paste the APIM subscription key into src/environments/ first (never commit it)
+npx ng serve                                  # http://localhost:4200
+npx ng build --configuration production       # -> dist/orderflow-web/browser, what Static Web Apps serves
+```
+
+`apiBaseUrl` in `src/environments/` decides which backend the app calls: the APIM URL for Azure,
+or `http://localhost:8080` for the compose stack. If you run it on localhost against APIM, add
+`http://localhost:4200` to the allowed origins in APIM.
+
 ## API
 
 Through the gateway on `:8080` under compose; under Aspire, the gateway's port is on the dashboard;
@@ -350,53 +381,6 @@ second one.
 The payment gateway stand-in is deterministic by amount, so the failure paths run end to end: a
 total of **13.13** is declined permanently (order cancelled, stock released), **66.66** times out
 retryably, and anything else succeeds.
-
-## Layout
-
-```
-src/
-  Aspire/OrderFlow.AppHost/          orchestration: brokers, databases, services
-  BuildingBlocks/
-    OrderFlow.Contracts/             the public event contracts and the topic map
-    OrderFlow.Grpc.Contracts/        inventory_query.proto -> server base + client
-    OrderFlow.Messaging/             outbox, inbox, Kafka, dispatcher
-    OrderFlow.Messaging.RabbitMq/    fanout publisher and consumer (no longer used by Notification)
-    OrderFlow.ServiceDefaults/       OpenTelemetry, health checks, service discovery
-  Gateway/OrderFlow.Gateway/         YARP reverse proxy, routes in configuration
-  Services/
-    Order/          Api -> Infrastructure -> Application -> Domain
-    Inventory/      stock levels and reservations
-    Payment/        pending charges, captures, refunds
-    Notification/   what the customer was told; hands channel work to Service Bus
-  Functions/
-    OrderFlow.Notifications.Functions/  Service Bus triggers: SendEmail, SendSms
-infra/
-  env.sh                             every Azure resource name, in one place
-  provision.sh                       the platform
-  identities.sh                      one managed identity per service, and its roles
-  sql/                               contained database users for the identities
-deploy/
-  helm/orderflow-service/            the one chart
-  helm/values/                       common, local, per-service, azure.generated
-  scripts/                           build-images, write-azure-values, helm-deploy, test-day5
-  apim/                              the APIM policy
-docker-compose.yml                   infrastructure, plus every service under --profile apps
-.dockerignore                        keeps host build output out of the build context
-tests/
-  OrderFlow.Order.UnitTests/         the saga state machine, no infrastructure
-  OrderFlow.Messaging.UnitTests/     inbox dedup, dead-letter publisher
-  OrderFlow.IntegrationTests/        real SQL Server and real Kafka via Testcontainers
-  OrderFlow.ContractTests/           Pact consumer and provider verification
-```
-
-Only Order is split into layers, because only Order has real business rules; dependencies point
-inward and the domain knows about nobody. The other three receive an event, change a row, and emit
-an event.
-
-There is one topic per producer, because ordering is only guaranteed within a partition of a
-topic, and one order's events have to stay ordered relative to each other. Contracts carry
-primitives only: a public contract has to be free to evolve separately from the internal model,
-and whatever deserializes it may not be written in C#.
 
 ## Tests
 
