@@ -1,0 +1,11 @@
+services:
+  inventory:
+    image: "${REGISTRY:?set REGISTRY}/orderflow/inventory-api:${TAG:?set TAG}"
+  payment:
+    image: "${REGISTRY:?set REGISTRY}/orderflow/payment-api:${TAG:?set TAG}"
+  notification:
+    image: "${REGISTRY:?set REGISTRY}/orderflow/notification-api:${TAG:?set TAG}"
+  order:
+    image: "${REGISTRY:?set REGISTRY}/orderflow/order-api:${TAG:?set TAG}"
+  gateway:
+    image: "${REGISTRY:?set REGISTRY}/orderflow/gateway:${TAG:?set TAG}"

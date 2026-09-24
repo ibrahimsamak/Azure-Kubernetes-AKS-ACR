@@ -59,7 +59,20 @@ jobs:
           format: table
           trivyignores: .trivyignore
 
-      - name: Azure login (OIDC — no secret)
+      - name: SBOM (CycloneDX)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25    # v0.36.0
+        with:
+          image-ref: orderflow/${{ matrix.image }}:${{ env.TAG }}
+          format: cyclonedx
+          output: sbom-${{ matrix.image }}.cdx.json
+          exit-code: '0'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ matrix.image }}
+          path: sbom-${{ matrix.image }}.cdx.json
+          retention-days: 90
+
+      - name: Azure login (build identity)
         uses: azure/login@v2
         with:
           client-id: ${{ vars.AZURE_BUILD_CLIENT_ID }}
@@ -74,11 +87,59 @@ jobs:
           docker tag "orderflow/${{ matrix.image }}:$TAG" "$remote"
           docker push "$remote"
 
-  deploy:
+  e2e:
+    name: e2e (staging)
     needs: images
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    environment: production
+    environment: staging
+    env:
+      COMPOSE: docker compose -f docker-compose.yml -f docker-compose.ci.yml --profile apps
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (build identity — pull only)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_BUILD_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Registry
+        run: |
+          source infra/env.sh
+          az acr login --name "$ACR"
+          echo "REGISTRY=$ACR.azurecr.io" >> "$GITHUB_ENV"
+
+      - name: Start the stack from the images under test
+        run: |
+          $COMPOSE pull inventory payment notification order gateway
+          $COMPOSE up -d --no-build
+
+      - name: Smoke test — happy path, compensation, idempotency
+        run: bash deploy/scripts/smoke-test.sh full http://localhost:8080
+
+      - name: Collect logs
+        if: failure()
+        run: $COMPOSE logs --no-color > compose-logs.txt
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: compose-logs
+          path: compose-logs.txt
+          retention-days: 7
+
+      - name: Tear down
+        if: always()
+        run: $COMPOSE down -v
+
+  deploy:
+    needs: [images, e2e]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: production
+      url: ${{ steps.smoke.outputs.url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -93,13 +154,39 @@ jobs:
         with:
           version: v4.3.0
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/orderflow-web/package-lock.json
+
       - name: kubeconfig
         run: |
           source infra/env.sh
           az aks get-credentials -g "$RG" -n "$AKS" --overwrite-existing
 
-      - name: Deploy (Helm ×5)
+      - name: Snapshot current revisions (the rollback target)
+        run: bash deploy/scripts/helm-snapshot.sh | tee rollback-revisions.txt
+
+      - name: Deploy services (Helm ×5)
         run: |
           source infra/env.sh
           bash deploy/scripts/write-azure-values.sh
           bash deploy/scripts/helm-deploy.sh azure
+
+      - name: Apply APIM policy
+        run: bash deploy/scripts/apim-apply-policy.sh
+
+      - name: Deploy SPA
+        run: bash deploy/scripts/deploy-web.sh
+
+      - name: Smoke test (edge)
+        id: smoke
+        run: |
+          ip=$(kubectl get ingress gateway -n orderflow -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+          echo "url=http://$ip" >> "$GITHUB_OUTPUT"
+          bash deploy/scripts/smoke-test.sh edge "http://$ip"
+
+      - name: Roll back ALL releases
+        if: failure()
+        run: bash deploy/scripts/helm-rollback.sh rollback-revisions.txt
