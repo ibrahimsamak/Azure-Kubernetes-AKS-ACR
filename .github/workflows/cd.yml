@@ -53,7 +53,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 
       - name: Scan (fail on fixable HIGH/CRITICAL)
-        uses: aquasecurity/trivy-action@0.33.1    # use the latest release tag; Day 3 pins it to a SHA
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25    # v0.36.0 (tags are v-prefixed)
         with:
           image-ref: orderflow/${{ matrix.image }}:${{ env.TAG }}
           severity: CRITICAL,HIGH
