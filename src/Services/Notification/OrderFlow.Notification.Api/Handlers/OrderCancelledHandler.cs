@@ -3,11 +3,11 @@ namespace OrderFlow.Notification.Api.Handlers;
 using OrderFlow.Contracts.Orders;
 using OrderFlow.Messaging.Abstractions;
 using OrderFlow.Notification.Api.Persistence;
-using OrderFlow.Notification.Api.ServiceBus;
+using OrderFlow.Notification.Api.Tasks;
 
 public sealed partial class OrderCancelledHandler(
     NotificationDbContext db,
-    ServiceBusNotificationPublisher publisher,
+    INotificationTaskPublisher publisher,
     ILogger<OrderCancelledHandler> logger) : IIntegrationEventHandler<OrderCancelled>
 {
     private static readonly string[] CancellationChannels = ["email"];

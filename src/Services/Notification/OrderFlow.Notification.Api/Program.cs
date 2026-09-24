@@ -1,3 +1,5 @@
+using Azure.Core;
+using Azure.Messaging.ServiceBus;
 using Microsoft.EntityFrameworkCore;
 using OrderFlow.Contracts;
 using OrderFlow.Contracts.Orders;
@@ -5,23 +7,29 @@ using OrderFlow.Messaging.Abstractions;
 using OrderFlow.Messaging.DependencyInjection;
 using OrderFlow.Notification.Api.Handlers;
 using OrderFlow.Notification.Api.Persistence;
-using Azure.Core;
-using Azure.Messaging.ServiceBus;
+using OrderFlow.Notification.Api.RabbitMq;
 using OrderFlow.Notification.Api.ServiceBus;
+using OrderFlow.Notification.Api.Tasks;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
 builder.AddOrderFlowAzure();
 
-var serviceBusNamespace = builder.Configuration["ServiceBus:FullyQualifiedNamespace"]
-    ?? throw new InvalidOperationException("ServiceBus:FullyQualifiedNamespace is not configured.");
-
-builder.Services.AddSingleton(sp =>
-    new ServiceBusClient(serviceBusNamespace, sp.GetRequiredService<TokenCredential>()));
-builder.Services.AddSingleton(sp =>
-    sp.GetRequiredService<ServiceBusClient>().CreateSender("notifications"));
-builder.Services.AddSingleton<ServiceBusNotificationPublisher>();
+var serviceBusNamespace = builder.Configuration["ServiceBus:FullyQualifiedNamespace"];
+if (!string.IsNullOrWhiteSpace(serviceBusNamespace))
+{
+    builder.Services.AddSingleton(sp =>
+        new ServiceBusClient(serviceBusNamespace, sp.GetRequiredService<TokenCredential>()));
+    builder.Services.AddSingleton(sp =>
+        sp.GetRequiredService<ServiceBusClient>().CreateSender("notifications"));
+    builder.Services.AddSingleton<INotificationTaskPublisher, ServiceBusNotificationPublisher>();
+}
+else
+{
+    builder.Services.AddNotificationFanout(builder.Configuration);
+    builder.Services.AddSingleton<INotificationTaskPublisher, RabbitMqNotificationPublisher>();
+}
 
 builder.Services.AddDbContext<NotificationDbContext>(o =>
     o.UseSqlServer(builder.Configuration.GetConnectionString(NotificationDbContext.ConnectionName),
