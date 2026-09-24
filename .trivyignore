@@ -1,0 +1,6 @@
+# One finding per line:   <ID> exp:<yyyy-mm-dd>
+# with a comment line above it giving the reason. Never ignore without both. Empty is the goal.
+#
+# Example:
+# reason: vulnerable code path (XML external entities) is not reachable — we never parse XML.
+# CVE-2099-00000 exp:2026-12-31

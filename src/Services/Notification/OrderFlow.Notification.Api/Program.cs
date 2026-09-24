@@ -1,3 +1,5 @@
+using Azure.Core;
+using Azure.Messaging.ServiceBus;
 using Microsoft.EntityFrameworkCore;
 using OrderFlow.Contracts;
 using OrderFlow.Contracts.Orders;
@@ -5,25 +7,35 @@ using OrderFlow.Messaging.Abstractions;
 using OrderFlow.Messaging.DependencyInjection;
 using OrderFlow.Notification.Api.Handlers;
 using OrderFlow.Notification.Api.Persistence;
-using Azure.Core;
-using Azure.Messaging.ServiceBus;
+using OrderFlow.Notification.Api.RabbitMq;
 using OrderFlow.Notification.Api.ServiceBus;
+using OrderFlow.Notification.Api.Tasks;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();     // OTel, health, service discovery
-builder.AddOrderFlowAzure();     // NEW
+builder.AddOrderFlowAzure();      // TokenCredential (+ Key Vault when configured)
 
-var serviceBusNamespace = builder.Configuration["ServiceBus:FullyQualifiedNamespace"]
-    ?? throw new InvalidOperationException("ServiceBus:FullyQualifiedNamespace is not configured.");
-
-// ServiceBusClient and ServiceBusSender are thread-safe and meant to be singletons:
-// they hold the AMQP connection. Creating one per message is a classic performance bug.
-builder.Services.AddSingleton(sp =>
-    new ServiceBusClient(serviceBusNamespace, sp.GetRequiredService<TokenCredential>()));
-builder.Services.AddSingleton(sp =>
-    sp.GetRequiredService<ServiceBusClient>().CreateSender("notifications"));
-builder.Services.AddSingleton<ServiceBusNotificationPublisher>();
+// The task transport is picked by CONFIGURATION, not by environment name:
+//   AKS (Helm sets ServiceBus__FullyQualifiedNamespace) -> Service Bus topic -> Azure Functions
+//   Aspire / compose / the CI e2e stack                 -> RabbitMQ fanout (Week 2)
+// Registering both would open a RabbitMQ connection in Azure that can never succeed.
+var serviceBusNamespace = builder.Configuration["ServiceBus:FullyQualifiedNamespace"];
+if (!string.IsNullOrWhiteSpace(serviceBusNamespace))
+{
+    // ServiceBusClient and ServiceBusSender are thread-safe and meant to be singletons:
+    // they hold the AMQP connection. Creating one per message is a classic performance bug.
+    builder.Services.AddSingleton(sp =>
+        new ServiceBusClient(serviceBusNamespace, sp.GetRequiredService<TokenCredential>()));
+    builder.Services.AddSingleton(sp =>
+        sp.GetRequiredService<ServiceBusClient>().CreateSender("notifications"));
+    builder.Services.AddSingleton<INotificationTaskPublisher, ServiceBusNotificationPublisher>();
+}
+else
+{
+    builder.Services.AddNotificationFanout(builder.Configuration);
+    builder.Services.AddSingleton<INotificationTaskPublisher, RabbitMqNotificationPublisher>();
+}
 
 builder.Services.AddDbContext<NotificationDbContext>(o =>
     o.UseSqlServer(builder.Configuration.GetConnectionString(NotificationDbContext.ConnectionName),

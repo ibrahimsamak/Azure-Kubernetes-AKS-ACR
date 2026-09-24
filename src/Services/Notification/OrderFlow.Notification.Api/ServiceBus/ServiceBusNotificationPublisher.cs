@@ -1,14 +1,14 @@
 namespace OrderFlow.Notification.Api.ServiceBus;
 
 using Azure.Messaging.ServiceBus;
+using OrderFlow.Notification.Api.Tasks;
 
-public sealed record NotificationRequested(Guid OrderId, string CustomerId, string Kind, string[] Channels);
-
-
-public sealed class ServiceBusNotificationPublisher(ServiceBusSender sender)
+public sealed class ServiceBusNotificationPublisher(ServiceBusSender sender) : INotificationTaskPublisher
 {
     public Task PublishAsync(NotificationRequested notification, CancellationToken ct)
     {
+        ArgumentNullException.ThrowIfNull(notification);
+
         var message = new ServiceBusMessage(BinaryData.FromObjectAsJson(notification))
         {
             // Same order + same kind => same MessageId => Service Bus discards the duplicate
