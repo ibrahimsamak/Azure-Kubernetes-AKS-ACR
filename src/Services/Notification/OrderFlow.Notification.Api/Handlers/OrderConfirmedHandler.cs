@@ -3,11 +3,11 @@ namespace OrderFlow.Notification.Api.Handlers;
 using OrderFlow.Contracts.Orders;
 using OrderFlow.Messaging.Abstractions;
 using OrderFlow.Notification.Api.Persistence;
-using OrderFlow.Notification.Api.ServiceBus;
+using OrderFlow.Notification.Api.Tasks;
 
 public sealed partial class OrderConfirmedHandler(
     NotificationDbContext db,
-    ServiceBusNotificationPublisher publisher,
+    INotificationTaskPublisher publisher,
     ILogger<OrderConfirmedHandler> logger) : IIntegrationEventHandler<OrderConfirmed>
 {
     private static readonly string[] ConfirmationChannels = ["email", "sms"];
@@ -25,8 +25,7 @@ public sealed partial class OrderConfirmedHandler(
         });
 
         await publisher.PublishAsync(
-            new NotificationRequested(e.OrderId, e.CustomerId, "OrderConfirmed", ConfirmationChannels), ct
-        );
+            new NotificationRequested(e.OrderId, e.CustomerId, "OrderConfirmed", ConfirmationChannels), ct);
 
         LogQueued(logger, e.OrderId);
     }

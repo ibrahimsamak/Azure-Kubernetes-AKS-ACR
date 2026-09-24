@@ -349,3 +349,4 @@ $RECYCLE.BIN/
 *.swp
 
 deploy/helm/values/azure.generated.yaml
+rollback-revisions.txt
