@@ -84,6 +84,7 @@ services:
     environment:
       <<: *service-env
       ConnectionStrings__orderflow-payments: "Server=sql,1433;Database=orderflow-payments;User Id=sa;Password=Your_strong_P4ssword!;TrustServerCertificate=True"
+      PaymentGateway__ApiKey: "sk_test_local_only"
     depends_on:
       kafka: { condition: service_healthy }
       sql: { condition: service_healthy }

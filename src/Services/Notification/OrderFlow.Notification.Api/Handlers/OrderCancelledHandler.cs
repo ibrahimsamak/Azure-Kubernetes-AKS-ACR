@@ -3,11 +3,11 @@ namespace OrderFlow.Notification.Api.Handlers;
 using OrderFlow.Contracts.Orders;
 using OrderFlow.Messaging.Abstractions;
 using OrderFlow.Notification.Api.Persistence;
-using OrderFlow.Notification.Api.ServiceBus;
+using OrderFlow.Notification.Api.Tasks;
 
 public sealed partial class OrderCancelledHandler(
     NotificationDbContext db,
-    ServiceBusNotificationPublisher publisher,
+    INotificationTaskPublisher publisher,
     ILogger<OrderCancelledHandler> logger) : IIntegrationEventHandler<OrderCancelled>
 {
     private static readonly string[] CancellationChannels = ["email"];
@@ -30,7 +30,8 @@ public sealed partial class OrderCancelledHandler(
             Body = body
         });
 
-        // Same MessageId rule as OrderConfirmed: a Kafka redelivery is dropped by duplicate detection.
+        // Same idempotency rule as OrderConfirmed: a Kafka redelivery is dropped by Service Bus
+        // duplicate detection (same MessageId), or ignored by the idempotent RabbitMQ workers.
         await publisher.PublishAsync(
             new NotificationRequested(e.OrderId, e.CustomerId, "OrderCancelled", CancellationChannels), ct);
 

@@ -5,6 +5,8 @@ WORKDIR /src
 COPY Directory.Build.props .editorconfig ./
 COPY src/BuildingBlocks/OrderFlow.Contracts/OrderFlow.Contracts.csproj                     src/BuildingBlocks/OrderFlow.Contracts/
 COPY src/BuildingBlocks/OrderFlow.Messaging/OrderFlow.Messaging.csproj                     src/BuildingBlocks/OrderFlow.Messaging/
+# RabbitMQ carries the notification TASK in compose / CI; Service Bus does in AKS (chosen by config).
+COPY src/BuildingBlocks/OrderFlow.Messaging.RabbitMq/OrderFlow.Messaging.RabbitMq.csproj   src/BuildingBlocks/OrderFlow.Messaging.RabbitMq/
 COPY src/BuildingBlocks/OrderFlow.ServiceDefaults/OrderFlow.ServiceDefaults.csproj         src/BuildingBlocks/OrderFlow.ServiceDefaults/
 COPY src/Services/Notification/OrderFlow.Notification.Api/OrderFlow.Notification.Api.csproj src/Services/Notification/OrderFlow.Notification.Api/
 RUN dotnet restore src/Services/Notification/OrderFlow.Notification.Api/OrderFlow.Notification.Api.csproj
