@@ -31,3 +31,9 @@ export K8S_NS="orderflow"
 export SERVICES="order inventory payment notification"
 export DATABASES="orderflow-orders orderflow-inventory orderflow-payments orderflow-notifications"
 export TOPICS="orderflow.orders.v1 orderflow.inventory.v1 orderflow.payments.v1"
+
+# ---- Week 4 ----
+export GH_REPO="${GH_REPO:-ibrahimsamak/Azure-Kubernetes-AKS-ACR}"   # owner/repo, for gh commands
+# The OIDC `sub` GitHub issues for this repo uses the ID-qualified form owner@<id>/repo@<id>.
+# Entra compares it byte for byte, so the federated credentials must use exactly this.
+export GH_OIDC_REPO="${GH_OIDC_REPO:-ibrahimsamak@12866385/Azure-Kubernetes-AKS-ACR@1379554158}"

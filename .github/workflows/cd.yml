@@ -15,18 +15,19 @@ concurrency:
   cancel-in-progress: false   # never kill a deploy half-way; queue the next run instead
 
 env:
-  TAG: ${{ github.sha }}      # immutable, traceable: every image says which commit it is
+  TAG: ${{ github.sha }}
 
 jobs:
   ci:
     uses: ./.github/workflows/ci.yml
 
+  # ------------------------------------------------------------------ build once
   images:
     needs: ci
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
-      fail-fast: false        # one bad image shouldn't hide the scan results of the other four
+      fail-fast: false
       matrix:
         include:
           - { image: order-api,        dockerfile: src/Services/Order/OrderFlow.Order.Api/Dockerfile }
@@ -38,7 +39,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
 
-      # Build and LOAD into the runner's Docker — nothing leaves the runner until it passed the scan.
       - name: Build
         uses: docker/build-push-action@v6
         with:
@@ -47,8 +47,6 @@ jobs:
           tags: orderflow/${{ matrix.image }}:${{ env.TAG }}
           load: true
           push: false
-          # Layer cache in GitHub's cache service: the restore layer (csproj only) is reused
-          # until a package reference changes — the same trick as the Dockerfile's layer order.
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 
@@ -57,12 +55,27 @@ jobs:
         with:
           image-ref: orderflow/${{ matrix.image }}:${{ env.TAG }}
           severity: CRITICAL,HIGH
-          ignore-unfixed: true      # a CVE with no fixed version is a risk to track, not a build to break
+          ignore-unfixed: true
           exit-code: '1'
           format: table
           trivyignores: .trivyignore
 
-      - name: Azure login (OIDC — no secret)
+      # SBOM: the list of every package in the image. When the next Log4Shell lands, "are we
+      # affected?" becomes a search over these files instead of an archaeology project.
+      - name: SBOM (CycloneDX)
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: orderflow/${{ matrix.image }}:${{ env.TAG }}
+          format: cyclonedx
+          output: sbom-${{ matrix.image }}.cdx.json
+          exit-code: '0'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ matrix.image }}
+          path: sbom-${{ matrix.image }}.cdx.json
+          retention-days: 90
+
+      - name: Azure login (build identity)
         uses: azure/login@v2
         with:
           client-id: ${{ vars.AZURE_BUILD_CLIENT_ID }}
@@ -77,11 +90,61 @@ jobs:
           docker tag "orderflow/${{ matrix.image }}:$TAG" "$remote"
           docker push "$remote"
 
-  deploy:
+  # ------------------------------------------------------------------ staging (ephemeral)
+  e2e:
+    name: e2e (staging)
     needs: images
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    environment: production     # OIDC subject becomes repo:…:environment:production
+    environment: staging        # subject …:environment:staging -> trusted by the BUILD identity
+    env:
+      COMPOSE: docker compose -f docker-compose.yml -f docker-compose.ci.yml --profile apps
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (build identity — pull only)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_BUILD_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Registry
+        run: |
+          source infra/env.sh
+          az acr login --name "$ACR"
+          echo "REGISTRY=$ACR.azurecr.io" >> "$GITHUB_ENV"
+
+      - name: Start the stack from the images under test
+        run: |
+          $COMPOSE pull inventory payment notification order gateway
+          $COMPOSE up -d --no-build
+
+      - name: Smoke test — happy path, compensation, idempotency
+        run: bash deploy/scripts/smoke-test.sh full http://localhost:8080
+
+      - name: Collect logs
+        if: failure()
+        run: $COMPOSE logs --no-color > compose-logs.txt
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: compose-logs
+          path: compose-logs.txt
+          retention-days: 7
+
+      - name: Tear down
+        if: always()
+        run: $COMPOSE down -v
+
+  # ------------------------------------------------------------------ production (gated)
+  deploy:
+    needs: [images, e2e]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: production          # required reviewer + main only; subject …:environment:production
+      url: ${{ steps.smoke.outputs.url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -96,13 +159,39 @@ jobs:
         with:
           version: v4.3.0       # match `helm version` on your machine
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/orderflow-web/package-lock.json
+
       - name: kubeconfig
         run: |
           source infra/env.sh
           az aks get-credentials -g "$RG" -n "$AKS" --overwrite-existing
 
-      - name: Deploy (Helm ×5)
+      - name: Snapshot current revisions (the rollback target)
+        run: bash deploy/scripts/helm-snapshot.sh | tee rollback-revisions.txt
+
+      - name: Deploy services (Helm ×5)
         run: |
           source infra/env.sh
           bash deploy/scripts/write-azure-values.sh
           bash deploy/scripts/helm-deploy.sh azure
+
+      - name: Apply APIM policy
+        run: bash deploy/scripts/apim-apply-policy.sh
+
+      - name: Deploy SPA
+        run: bash deploy/scripts/deploy-web.sh
+
+      - name: Smoke test (edge)
+        id: smoke
+        run: |
+          ip=$(kubectl get ingress gateway -n orderflow -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+          echo "url=http://$ip" >> "$GITHUB_OUTPUT"
+          bash deploy/scripts/smoke-test.sh edge "http://$ip"
+
+      - name: Roll back ALL releases
+        if: failure()
+        run: bash deploy/scripts/helm-rollback.sh rollback-revisions.txt

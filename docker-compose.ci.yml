@@ -1,0 +1,14 @@
+# CI only. Runs the images the pipeline pushed instead of building them:
+#   REGISTRY=<acr>.azurecr.io TAG=<sha> \
+#   docker compose -f docker-compose.yml -f docker-compose.ci.yml --profile apps up -d --no-build
+services:
+  inventory:
+    image: "${REGISTRY:?set REGISTRY}/orderflow/inventory-api:${TAG:?set TAG}"
+  payment:
+    image: "${REGISTRY:?set REGISTRY}/orderflow/payment-api:${TAG:?set TAG}"
+  notification:
+    image: "${REGISTRY:?set REGISTRY}/orderflow/notification-api:${TAG:?set TAG}"
+  order:
+    image: "${REGISTRY:?set REGISTRY}/orderflow/order-api:${TAG:?set TAG}"
+  gateway:
+    image: "${REGISTRY:?set REGISTRY}/orderflow/gateway:${TAG:?set TAG}"
