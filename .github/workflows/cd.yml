@@ -63,7 +63,7 @@ jobs:
       # SBOM: the list of every package in the image. When the next Log4Shell lands, "are we
       # affected?" becomes a search over these files instead of an archaeology project.
       - name: SBOM (CycloneDX)
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25    # v0.36.0 (tags are v-prefixed)
         with:
           image-ref: orderflow/${{ matrix.image }}:${{ env.TAG }}
           format: cyclonedx
