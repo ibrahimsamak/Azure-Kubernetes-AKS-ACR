@@ -1,17 +1,17 @@
-using Azure.Core;
+namespace OrderFlow.Messaging.Kafka;
+
 using System.Diagnostics;
+using Azure.Core;
 using Confluent.Kafka;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OrderFlow.Contracts;
 using OrderFlow.Messaging.Abstractions;
 using OrderFlow.Messaging.Serialization;
-
-namespace OrderFlow.Messaging.Kafka;
+using OrderFlow.Messaging.Telemetry;
 
 public sealed partial class KafkaEventPublisher : IEventPublisher, IDisposable
 {
-    public static readonly ActivitySource ActivitySource = new("OrderFlow.Messeging");
     private readonly IProducer<string, string> _producer;
     private readonly ILogger<KafkaEventPublisher> _logger;
     private int _disposed;
@@ -21,28 +21,28 @@ public sealed partial class KafkaEventPublisher : IEventPublisher, IDisposable
         _logger = logger;
         var o = options.Value;
 
-    var config = new ProducerConfig
-    {
-        Acks = Acks.All,
-        EnableIdempotence = o.EnableIdempotence,
-        MessageSendMaxRetries = 5,
-        RetryBackoffMs = 200,
-        MessageTimeoutMs = 30_000,
-        LingerMs = 5,
-        CompressionType = o.CompressionType
-    };
-    AzureKafkaAuth.Apply(config, o);
+        var config = new ProducerConfig
+        {
+            Acks = Acks.All,
+            EnableIdempotence = o.EnableIdempotence,
+            MessageSendMaxRetries = 5,
+            RetryBackoffMs = 200,
+            MessageTimeoutMs = 30_000,
+            LingerMs = 5,
+            CompressionType = o.CompressionType
+        };
+        AzureKafkaAuth.Apply(config, o);
 
-    var builder = new ProducerBuilder<string, string>(config)
-        .SetLogHandler((_, m) => LogProducerClientMessage(_logger, m.Message));
+        var builder = new ProducerBuilder<string, string>(config)
+            .SetLogHandler((_, m) => LogProducerClientMessage(_logger, m.Message));
 
-    if (o.AuthMode == KafkaAuthMode.AzureAd)
-    {
-        ArgumentNullException.ThrowIfNull(credential);
-        builder.SetOAuthBearerTokenRefreshHandler((client, _) => AzureKafkaAuth.RefreshToken(client, credential, o));
-    }
-    
-    _producer = builder.Build();
+        if (o.AuthMode == KafkaAuthMode.AzureAd)
+        {
+            ArgumentNullException.ThrowIfNull(credential);
+            builder.SetOAuthBearerTokenRefreshHandler((client, _) => AzureKafkaAuth.RefreshToken(client, credential, o));
+        }
+
+        _producer = builder.Build();
     }
 
     public Task PublishAsync(IntegrationEvent @event, string partitionKey, CancellationToken ct = default)
@@ -57,10 +57,11 @@ public sealed partial class KafkaEventPublisher : IEventPublisher, IDisposable
             [KafkaHeaders.EventType] = envelope.Type,
         };
 
-        using var activity = ActivitySource.StartActivity($"publish {topic}", ActivityKind.Producer);
+        using var activity = MessagingTelemetry.ActivitySource.StartActivity($"publish {topic}", ActivityKind.Producer);
         activity?.SetTag("messaging.system", "kafka");
         activity?.SetTag("messaging.destination.name", topic);
         activity?.SetTag("messaging.message.id", @event.MessageId);
+        activity?.SetTag("orderflow.correlation_id", @event.CorrelationId);
         TraceContextPropagation.Inject(Activity.Current, headers);
 
         return PublishRawAsync(topic, partitionKey, envelope.ToJson(), headers, ct);
@@ -81,6 +82,7 @@ public sealed partial class KafkaEventPublisher : IEventPublisher, IDisposable
         }
 
         var result = await _producer.ProduceAsync(topic, message, ct);
+        MessagingTelemetry.Published.Add(1, new KeyValuePair<string, object?>("messaging.destination.name", result.Topic));
 
         if (_logger.IsEnabled(LogLevel.Debug))
         {
