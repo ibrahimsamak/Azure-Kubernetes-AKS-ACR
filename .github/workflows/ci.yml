@@ -1,0 +1,92 @@
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_call:          # cd.yml reuses this, so a push to main runs the checks exactly once
+
+permissions:
+  contents: read
+  checks: write           # dorny/test-reporter publishes the results as a check run
+
+jobs:
+  dotnet:
+    name: build-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DOTNET_NOLOGO: true
+      DOTNET_CLI_TELEMETRY_OPTOUT: true
+      NUGET_PACKAGES: ${{ github.workspace }}/.nuget/packages
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.NUGET_PACKAGES }}
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', 'Directory.Build.props') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      - name: Restore
+        run: dotnet restore OrderFlow.slnx
+
+      # TreatWarningsAsErrors is on in Directory.Build.props: an analyzer warning or a package
+      # with a known vulnerability (NU1903) fails here, before any test runs.
+      - name: Build
+        run: dotnet build OrderFlow.slnx --configuration Release --no-restore
+
+      - name: Unit + contract tests
+        run: >
+          dotnet test OrderFlow.slnx --configuration Release --no-build
+          --filter "FullyQualifiedName!~OrderFlow.IntegrationTests"
+          --logger "trx;LogFilePrefix=unit"
+          --results-directory TestResults
+          --collect "XPlat Code Coverage"
+
+      # ubuntu-latest has a Docker daemon, so Testcontainers starts SQL Server and Kafka exactly
+      # as on your machine. DockerFact would skip these if Docker were missing — here it never is.
+      - name: Integration tests (Testcontainers)
+        run: >
+          dotnet test tests/OrderFlow.IntegrationTests/OrderFlow.IntegrationTests.csproj
+          --configuration Release --no-build
+          --logger "trx;LogFilePrefix=integration"
+          --results-directory TestResults
+
+      - name: Publish test report
+        if: ${{ !cancelled() }}
+        uses: dorny/test-reporter@v2
+        with:
+          name: .NET tests
+          path: TestResults/**/*.trx
+          reporter: dotnet-trx
+          fail-on-error: false        # the test steps already failed the job; this is for reading
+
+      - name: Upload test results + coverage
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults
+          retention-days: 7
+
+  web:
+    name: web-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web/orderflow-web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/orderflow-web/package-lock.json
+      - run: npm ci
+      - run: npx ng build --configuration production

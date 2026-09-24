@@ -1,0 +1,108 @@
+name: cd
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: write           # handed down to ci.yml
+  id-token: write         # lets jobs request a GitHub OIDC token for azure/login
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false   # never kill a deploy half-way; queue the next run instead
+
+env:
+  TAG: ${{ github.sha }}      # immutable, traceable: every image says which commit it is
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  images:
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false        # one bad image shouldn't hide the scan results of the other four
+      matrix:
+        include:
+          - { image: order-api,        dockerfile: src/Services/Order/OrderFlow.Order.Api/Dockerfile }
+          - { image: inventory-api,    dockerfile: src/Services/Inventory/OrderFlow.Inventory.Api/Dockerfile }
+          - { image: payment-api,      dockerfile: src/Services/Payment/OrderFlow.Payment.Api/Dockerfile }
+          - { image: notification-api, dockerfile: src/Services/Notification/OrderFlow.Notification.Api/Dockerfile }
+          - { image: gateway,          dockerfile: src/Gateway/OrderFlow.Gateway/Dockerfile }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      # Build and LOAD into the runner's Docker — nothing leaves the runner until it passed the scan.
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          tags: orderflow/${{ matrix.image }}:${{ env.TAG }}
+          load: true
+          push: false
+          # Layer cache in GitHub's cache service: the restore layer (csproj only) is reused
+          # until a package reference changes — the same trick as the Dockerfile's layer order.
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+      - name: Scan (fail on fixable HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@0.33.1    # use the latest release tag; Day 3 pins it to a SHA
+        with:
+          image-ref: orderflow/${{ matrix.image }}:${{ env.TAG }}
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true      # a CVE with no fixed version is a risk to track, not a build to break
+          exit-code: '1'
+          format: table
+          trivyignores: .trivyignore
+
+      - name: Azure login (OIDC — no secret)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_BUILD_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Push to ACR
+        run: |
+          source infra/env.sh
+          az acr login --name "$ACR"
+          remote="$ACR.azurecr.io/orderflow/${{ matrix.image }}:$TAG"
+          docker tag "orderflow/${{ matrix.image }}:$TAG" "$remote"
+          docker push "$remote"
+
+  deploy:
+    needs: images
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: production     # OIDC subject becomes repo:…:environment:production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (deploy identity)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_DEPLOY_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v4.3.0       # match `helm version` on your machine
+
+      - name: kubeconfig
+        run: |
+          source infra/env.sh
+          az aks get-credentials -g "$RG" -n "$AKS" --overwrite-existing
+
+      - name: Deploy (Helm ×5)
+        run: |
+          source infra/env.sh
+          bash deploy/scripts/write-azure-values.sh
+          bash deploy/scripts/helm-deploy.sh azure
