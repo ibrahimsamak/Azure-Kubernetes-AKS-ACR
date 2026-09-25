@@ -6,6 +6,8 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using OrderFlow.Messaging.Abstractions;
 using OrderFlow.Messaging.Serialization;
+using OrderFlow.Messaging.Telemetry;
+using System.Diagnostics;
 
 public sealed partial class OutboxDispatcherService<TContext>(
         IServiceScopeFactory scopeFactory,
@@ -56,7 +58,14 @@ public sealed partial class OutboxDispatcherService<TContext>(
             return 0;
         }
 
-        foreach (var message in messages) {
+        foreach (var message in messages)
+        {
+            var parent = ActivityContext.TryParse(message.TraceParent, null, out var ctx) ? ctx : default;
+            using var activity = MessagingTelemetry.ActivitySource.StartActivity("outbox dispatch", ActivityKind.Internal, parent);
+            activity?.SetTag("orderflow.outbox.id", message.Id);
+            activity?.SetTag("orderflow.outbox.type", message.Type);
+            activity?.SetTag("orderflow.outbox.attempt", message.AttemptCount + 1);
+
             try
             {
                 var envelope = MessageEnvelope.FromJson(message.Content) ?? throw new InvalidOperationException("Outbox row content is not a valid envelope.");
@@ -65,6 +74,8 @@ public sealed partial class OutboxDispatcherService<TContext>(
                 await publisher.PublishAsync(@event, message.PartitionKey, ct);
                 message.ProcessedOnUtc = DateTime.UtcNow;
                 message.LastError = null;
+
+                MessagingTelemetry.OutboxLag.Record((message.ProcessedOnUtc.Value - message.OccurredOnUtc).TotalSeconds);
             }
             catch (Exception ex)
             {
@@ -73,6 +84,8 @@ public sealed partial class OutboxDispatcherService<TContext>(
                 var delaySeconds = Math.Min(300, Math.Pow(2, Math.Min(message.AttemptCount, 8)));
                 message.NextAttemptUtc = DateTime.UtcNow.AddSeconds(delaySeconds);
 
+                MessagingTelemetry.OutboxPublishFailures.Add(1);
+                activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
                 LogPublishFailed(logger, ex, message.Id, message.AttemptCount);
             }
         }

@@ -13,6 +13,7 @@ public sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<Outbox
         builder.Property(x => x.Content).HasColumnType("nvarchar(max)").IsRequired();
         builder.Property(x => x.PartitionKey).HasMaxLength(100).IsRequired();
         builder.Property(x => x.LastError).HasMaxLength(2000);
+        builder.Property(x => x.TraceParent).HasMaxLength(55);
 
         builder.HasIndex(x => new { x.ProcessedOnUtc, x.NextAttemptUtc })
          .HasFilter("[ProcessedOnUtc] IS NULL")

@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using OrderFlow.Contracts;
 using OrderFlow.Messaging.Abstractions;
 using OrderFlow.Messaging.Serialization;
-
+using System.Diagnostics; 
 public sealed class EfOutboxStore<TContext>(TContext db) : IOutboxStore
     where TContext : DbContext
 {
@@ -18,7 +18,8 @@ public sealed class EfOutboxStore<TContext>(TContext db) : IOutboxStore
             Type = EventTypeRegistry.NameOf(integrationEvent.GetType()),
             Content = MessageEnvelope.Wrap(integrationEvent).ToJson(),
             PartitionKey = partitionKey,
-            OccurredOnUtc = integrationEvent.OccurredOnUtc
+            OccurredOnUtc = integrationEvent.OccurredOnUtc,
+            TraceParent = Activity.Current?.Id
         });
     }
 }
