@@ -1,0 +1,62 @@
+name: rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Commit SHA to redeploy (its images must already be in ACR)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: cd-refs/heads/main     # same group as cd.yml on main: never two deploys at once
+  cancel-in-progress: false
+
+jobs:
+  redeploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: production
+    env:
+      # Inputs go through env, never straight into a run: script — "${{ inputs.x }}" inside a
+      # script is how workflow injection happens.
+      TAG: ${{ inputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha }}      # chart + values + scripts exactly as they were at that commit
+
+      - name: Azure login (deploy identity)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_DEPLOY_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v4.3.0       # match `helm version` on your machine
+
+      - name: kubeconfig
+        run: |
+          source infra/env.sh
+          az aks get-credentials -g "$RG" -n "$AKS" --overwrite-existing
+
+      - name: The images exist
+        run: |
+          [[ "$TAG" =~ ^[0-9a-f]{40}$ ]] || { echo "sha must be a full 40-char commit SHA"; exit 1; }
+          source infra/env.sh
+          for image in order-api inventory-api payment-api notification-api gateway; do
+            az acr repository show -n "$ACR" --image "orderflow/$image:$TAG" -o none
+            echo "found orderflow/$image:$TAG"
+          done
+
+      - name: Redeploy
+        run: |
+          source infra/env.sh
+          bash deploy/scripts/write-azure-values.sh
+          bash deploy/scripts/helm-deploy.sh azure

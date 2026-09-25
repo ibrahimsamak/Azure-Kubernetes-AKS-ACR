@@ -1,54 +1,48 @@
+namespace OrderFlow.Messaging.Kafka;
 
-using Azure.Core;
 using System.Diagnostics;
+using Azure.Core;
 using Confluent.Kafka;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-//using Microsoft.VisualBasic.FileIO;
 using OrderFlow.Contracts;
 using OrderFlow.Messaging.Abstractions;
 using OrderFlow.Messaging.Serialization;
-
-namespace OrderFlow.Messaging.Kafka;
-
+using OrderFlow.Messaging.Telemetry;
 
 public sealed partial class KafkaEventPublisher : IEventPublisher, IDisposable
 {
-    public static readonly ActivitySource ActivitySource = new("OrderFlow.Messeging");
     private readonly IProducer<string, string> _producer;
     private readonly ILogger<KafkaEventPublisher> _logger;
     private int _disposed;
-
 
     public KafkaEventPublisher(IOptions<KafkaOptions> options, ILogger<KafkaEventPublisher> logger, TokenCredential? credential = null)
     {
         _logger = logger;
         var o = options.Value;
 
-    var config = new ProducerConfig
-    {
-        Acks = Acks.All,
-        EnableIdempotence = o.EnableIdempotence,
-        MessageSendMaxRetries = 5,
-        RetryBackoffMs = 200,
-        MessageTimeoutMs = 30_000,
-        LingerMs = 5,
-        CompressionType = o.CompressionType
-    };
-    AzureKafkaAuth.Apply(config, o);             // NEW — sets BootstrapServers (+ SASL in Azure)
+        var config = new ProducerConfig
+        {
+            Acks = Acks.All,
+            EnableIdempotence = o.EnableIdempotence,
+            MessageSendMaxRetries = 5,
+            RetryBackoffMs = 200,
+            MessageTimeoutMs = 30_000,
+            LingerMs = 5,
+            CompressionType = o.CompressionType
+        };
+        AzureKafkaAuth.Apply(config, o);             // sets BootstrapServers (+ SASL in Azure)
 
-    var builder = new ProducerBuilder<string, string>(config)
-        .SetLogHandler((_, m) => LogProducerClientMessage(_logger, m.Message));
+        var builder = new ProducerBuilder<string, string>(config)
+            .SetLogHandler((_, m) => LogProducerClientMessage(_logger, m.Message));
 
+        if (o.AuthMode == KafkaAuthMode.AzureAd)
+        {
+            ArgumentNullException.ThrowIfNull(credential);
+            builder.SetOAuthBearerTokenRefreshHandler((client, _) => AzureKafkaAuth.RefreshToken(client, credential, o));
+        }
 
-    if (o.AuthMode == KafkaAuthMode.AzureAd)     // NEW
-    {
-        ArgumentNullException.ThrowIfNull(credential);
-        builder.SetOAuthBearerTokenRefreshHandler((client, _) => AzureKafkaAuth.RefreshToken(client, credential, o));
-    }
-    
-    _producer = builder.Build();
-
+        _producer = builder.Build();
     }
 
     public Task PublishAsync(IntegrationEvent @event, string partitionKey, CancellationToken ct = default)
@@ -63,17 +57,17 @@ public sealed partial class KafkaEventPublisher : IEventPublisher, IDisposable
             [KafkaHeaders.EventType] = envelope.Type,
         };
 
-        // Producer span. The consumer will create a LINKED span from the traceparent header,
-        // so Aspire (and App Insights in Week 4) draws ONE trace across the async hop.
-        using var activity = ActivitySource.StartActivity($"publish {topic}", ActivityKind.Producer);
+        // Producer span. The consumer continues this trace from the traceparent header, so the
+        // async hop shows up as ONE trace (Aspire locally, App Insights in Azure).
+        using var activity = MessagingTelemetry.ActivitySource.StartActivity($"publish {topic}", ActivityKind.Producer);
         activity?.SetTag("messaging.system", "kafka");
         activity?.SetTag("messaging.destination.name", topic);
         activity?.SetTag("messaging.message.id", @event.MessageId);
+        activity?.SetTag("orderflow.correlation_id", @event.CorrelationId);
         TraceContextPropagation.Inject(Activity.Current, headers);
 
         return PublishRawAsync(topic, partitionKey, envelope.ToJson(), headers, ct);
     }
-
 
     public async Task PublishRawAsync(string topic, string key, string value,
         IReadOnlyDictionary<string, string> headers, CancellationToken ct = default)
@@ -92,6 +86,7 @@ public sealed partial class KafkaEventPublisher : IEventPublisher, IDisposable
         // ProduceAsync awaits the broker ack (because Acks.All). The outbox dispatcher
         // only marks the row processed AFTER this returns — that ordering is the whole point.
         var result = await _producer.ProduceAsync(topic, message, ct);
+        MessagingTelemetry.Published.Add(1, new KeyValuePair<string, object?>("messaging.destination.name", result.Topic));
 
         if (_logger.IsEnabled(LogLevel.Debug))
         {
@@ -108,7 +103,6 @@ public sealed partial class KafkaEventPublisher : IEventPublisher, IDisposable
         _producer.Flush(TimeSpan.FromSeconds(10));
         _producer.Dispose();
     }
-
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "Kafka producer: {Message}")]
     private static partial void LogProducerClientMessage(ILogger logger, string message);

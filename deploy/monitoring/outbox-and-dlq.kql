@@ -1,0 +1,4 @@
+customMetrics
+| where name in ("orderflow.outbox.publish_failures", "orderflow.messaging.dead_lettered")
+| summarize n = sum(valueSum) by name, cloud_RoleName, bin(timestamp, 5m)
+| render timechart

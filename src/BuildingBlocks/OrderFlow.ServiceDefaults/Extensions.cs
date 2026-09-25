@@ -1,9 +1,11 @@
+using Azure.Monitor.OpenTelemetry.AspNetCore;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
 using OpenTelemetry;
+using OpenTelemetry.Instrumentation.AspNetCore;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 
@@ -48,21 +50,39 @@ public static class Extensions
         builder.Logging.AddOpenTelemetry(logging =>
         {
             logging.IncludeFormattedMessage = true;
-            logging.IncludeScopes = true;
+            logging.IncludeScopes = true;      // CorrelationId / MessageId scopes become log attributes
+        });
+
+        // Configured through OPTIONS rather than the AddAspNetCoreInstrumentation(o => ...) lambda, so
+        // the same settings also apply to the instrumentation the Azure Monitor distro registers (part 2).
+        builder.Services.Configure<AspNetCoreTraceInstrumentationOptions>(o =>
+        {
+            // Probes hit every pod every 10s — tracing them buries real traffic, and costs money in Azure.
+            o.Filter = ctx => !ctx.Request.Path.StartsWithSegments("/health");
+
+            // APIM stamps every request with X-Correlation-Id. Keeping it on our server span lets you
+            // go from an APIM log line to our trace.
+            o.EnrichWithHttpRequest = (activity, request) =>
+            {
+                if (request.Headers.TryGetValue("X-Correlation-Id", out var edgeId))
+                {
+                    activity.SetTag("orderflow.edge_correlation_id", edgeId.ToString());
+                }
+            };
         });
 
         builder.Services.AddOpenTelemetry()
             .WithMetrics(metrics => metrics
                 .AddAspNetCoreInstrumentation()
                 .AddHttpClientInstrumentation()
-                .AddRuntimeInstrumentation())
+                .AddRuntimeInstrumentation()
+                // Every Meter we own is named "OrderFlow.<Area>": one wildcard, no names to mistype.
+                .AddMeter("OrderFlow.*"))
             .WithTracing(tracing => tracing
                 .AddSource(builder.Environment.ApplicationName)
-                .AddSource("OrderFlow.Messaging")
-                .AddAspNetCoreInstrumentation(o =>
-                    // Probes hit every pod every 10s — tracing them buries real traffic.
-                    o.Filter = ctx => !ctx.Request.Path.StartsWithSegments("/health"))
-                .AddHttpClientInstrumentation());
+                .AddSource("OrderFlow.*")
+                .AddAspNetCoreInstrumentation()
+                .AddHttpClientInstrumentation());   // also covers the gRPC client (it's HttpClient underneath)
 
         builder.AddOpenTelemetryExporters();
         return builder;
@@ -73,18 +93,33 @@ public static class Extensions
     {
         var useOtlpExporter = !string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]);
 
-        if (useOtlpExporter)
+        // if (useOtlpExporter)
+        // {
+        //     builder.Services.AddOpenTelemetry().UseOtlpExporter();
+        // }
+
+           // One destination, chosen by configuration:
+        //   AKS    -> APPLICATIONINSIGHTS_CONNECTION_STRING (Helm values)  -> Azure Monitor distro
+        //   Aspire -> OTEL_EXPORTER_OTLP_ENDPOINT (set by the AppHost)     -> the dashboard
+        if (!string.IsNullOrWhiteSpace(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
+        {
+            builder.Services.AddOpenTelemetry().UseAzureMonitor(o =>
+            {
+                // Entra ID auth for ingestion. The App Insights resource has local auth DISABLED, so the
+                // connection string alone cannot be used to send (or spoof) telemetry.
+                o.Credential = AzureExtensions.Credential;
+
+                // Fixed-ratio sampling decides from the TRACE ID, so all five services keep or drop
+                // the same trace: a sampled saga is always complete. 1.0 = keep everything, which is
+                // right at demo volumes; lower it (0.25, 0.1) when ingestion cost matters.
+                o.SamplingRatio = 1.0F;
+            });
+        }
+        else if (!string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]))
         {
             builder.Services.AddOpenTelemetry().UseOtlpExporter();
         }
-
-        // Uncomment the following lines to enable the Azure Monitor exporter (requires the Azure.Monitor.OpenTelemetry.AspNetCore package)
-        //if (!string.IsNullOrEmpty(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
-        //{
-        //    builder.Services.AddOpenTelemetry()
-        //       .UseAzureMonitor();
-        //}
-
+        
         return builder;
     }
 

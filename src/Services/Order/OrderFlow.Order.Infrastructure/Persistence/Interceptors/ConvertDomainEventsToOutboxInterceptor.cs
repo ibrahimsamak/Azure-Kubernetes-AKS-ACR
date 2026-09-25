@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore.Diagnostics;
+﻿using System.Diagnostics;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using OrderFlow.Messaging.Outbox;
 using OrderFlow.Messaging.Serialization;
 using OrderFlow.Order.Application.EventMapping;
@@ -40,7 +41,8 @@ public sealed class ConvertDomainEventsToOutboxInterceptor : SaveChangesIntercep
                     Type = EventTypeRegistry.NameOf(integrationEvent.GetType()),
                     Content = MessageEnvelope.Wrap(integrationEvent).ToJson(),
                     PartitionKey = integrationEvent.CorrelationId.ToString(),
-                    OccurredOnUtc = integrationEvent.OccurredOnUtc
+                    OccurredOnUtc = integrationEvent.OccurredOnUtc,
+                    TraceParent = Activity.Current?.Id
                 });
             }
 

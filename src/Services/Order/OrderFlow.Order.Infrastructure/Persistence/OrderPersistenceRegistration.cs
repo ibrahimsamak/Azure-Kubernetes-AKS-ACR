@@ -6,6 +6,7 @@ using OrderFlow.Order.Application.Sagas;
 using OrderFlow.Order.Infrastructure.Persistence.Interceptors;
 using OrderFlow.Order.Infrastructure.Persistence.Repositories;
 using OrderFlow.Order.Infrastructure.Sagas;
+using OrderFlow.Order.Infrastructure.Telemetry;
 
 namespace OrderFlow.Order.Infrastructure.Persistence;
 
@@ -18,6 +19,9 @@ public static class OrderPersistenceRegistration
         // Stateless, so one instance serves every DbContext.
         builder.Services.AddSingleton<ConvertDomainEventsToOutboxInterceptor>();
 
+        builder.Services.AddSingleton<SagaMetricsInterceptor>();
+
+
         // Aspire integration: reads ConnectionStrings:orderflow-orders (injected by the AppHost)
         // and adds SQL Server retry-on-failure, a health check and OpenTelemetry tracing.
         builder.AddSqlServerDbContext<OrderDbContext>(OrderDbContext.ConnectionName);
@@ -25,7 +29,9 @@ public static class OrderPersistenceRegistration
         // AddSqlServerDbContext's options callback has no IServiceProvider, so the interceptor
         // is attached here, where it can come from DI.
         builder.Services.ConfigureDbContext<OrderDbContext>((sp, options) =>
-            options.AddInterceptors(sp.GetRequiredService<ConvertDomainEventsToOutboxInterceptor>()));
+            options.AddInterceptors(
+                sp.GetRequiredService<SagaMetricsInterceptor>(),
+                sp.GetRequiredService<ConvertDomainEventsToOutboxInterceptor>()));
 
         // Scoped: they share the request's DbContext, which is what makes one
         // IUnitOfWork.SaveChangesAsync commit the order and its saga together.

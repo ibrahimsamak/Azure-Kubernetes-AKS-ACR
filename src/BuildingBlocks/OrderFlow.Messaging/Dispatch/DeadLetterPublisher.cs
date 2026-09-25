@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using OrderFlow.Contracts;
 using OrderFlow.Messaging.Abstractions;
 using OrderFlow.Messaging.Kafka;
+using OrderFlow.Messaging.Telemetry;
 
 public sealed partial class DeadLetterPublisher(IEventPublisher publisher, ILogger<DeadLetterPublisher> logger)
 {
@@ -20,7 +21,8 @@ public sealed partial class DeadLetterPublisher(IEventPublisher publisher, ILogg
         // Same key: a replayed DLQ message lands on the same partition and keeps its ordering.
         await publisher.PublishRawAsync(Topics.DeadLetter(sourceTopic), key, value, headers, ct);
 
-        // Alert on this in Week 4. A DLQ nobody watches is a silent data-loss queue.
+        // Alerted on (Week 4, part 2). A DLQ nobody watches is a silent data-loss queue.
+        MessagingTelemetry.DeadLettered.Add(1, new KeyValuePair<string, object?>("messaging.source.name", sourceTopic));
         LogDeadLettered(logger, sourceTopic, key, reason);
     }
 

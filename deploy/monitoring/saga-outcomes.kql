@@ -1,0 +1,5 @@
+customMetrics
+| where name == "orderflow.saga.completed"
+| extend outcome = tostring(customDimensions["orderflow.outcome"])
+| summarize sagas = sum(valueSum) by outcome, bin(timestamp, 15m)
+| render columnchart

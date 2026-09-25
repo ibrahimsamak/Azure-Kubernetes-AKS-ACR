@@ -13,6 +13,8 @@ public sealed class OutboxMessageConfiguration : IEntityTypeConfiguration<Outbox
         builder.Property(x => x.Content).HasColumnType("nvarchar(max)").IsRequired();
         builder.Property(x => x.PartitionKey).HasMaxLength(100).IsRequired();
         builder.Property(x => x.LastError).HasMaxLength(2000);
+        builder.Property(x => x.TraceParent).HasMaxLength(55);   // "00-" + 32 + "-" + 16 + "-" + 2
+
 
         // FILTERED index: only unprocessed rows are ever queried, and processed rows
         // (the vast majority over time) do not bloat it.

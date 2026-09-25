@@ -1,0 +1,6 @@
+requests
+| where cloud_RoleName startswith "orderflow."
+| summarize total = count(), failed = countif(success == false) by cloud_RoleName, bin(timestamp, 5m)
+| extend error_rate_pct = round(100.0 * failed / total, 2)
+| project timestamp, cloud_RoleName, error_rate_pct
+| render timechart

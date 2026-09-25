@@ -44,6 +44,18 @@ spec:
             - name: {{ .name }}
               containerPort: {{ .port }}
             {{- end }}
+          env:
+            # The pod's own name, from the downward API — becomes cloud_RoleInstance in App Insights.
+            - name: K8S_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            # service.name -> the node on the Application map. The release name IS the service name.
+            - name: OTEL_SERVICE_NAME
+              value: {{ include "svc.name" . | quote }}
+            # $(K8S_POD_NAME) is expanded by Kubernetes because it's defined earlier in this same list.
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: {{ printf "service.namespace=orderflow,service.version=%s,deployment.environment.name=%s,service.instance.id=$(K8S_POD_NAME)" .Values.image.tag .Values.environment | quote }}
           envFrom:
             - configMapRef:
                 name: {{ include "svc.name" . }}
