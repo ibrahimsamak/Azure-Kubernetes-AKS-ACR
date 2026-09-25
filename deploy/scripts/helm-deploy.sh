@@ -23,10 +23,14 @@ for svc in "${SERVICES[@]}"; do
   if [[ "$TARGET" == "azure" ]]; then
     : "${RG:?source infra/env.sh first}"
     args+=(-f "$VALUES/azure.generated.yaml")
-    if [[ "$svc" != "gateway" ]]; then
-      client_id=$(az identity show -g "$RG" -n "id-orderflow-$svc" --query clientId -o tsv)
-      args+=(--set workloadIdentity.enabled=true --set "workloadIdentity.clientId=$client_id")
-    fi
+    # # if [[ "$svc" != "gateway" ]]; then
+    #   client_id=$(az identity show -g "$RG" -n "id-orderflow-$svc" --query clientId -o tsv)
+    #   args+=(--set workloadIdentity.enabled=true --set "workloadIdentity.clientId=$client_id")
+
+    # Every release has a managed identity now; the gateway's only role is sending telemetry.
+    client_id=$(az identity show -g "$RG" -n "id-orderflow-$svc" --query clientId -o tsv)
+    args+=(--set workloadIdentity.enabled=true --set "workloadIdentity.clientId=$client_id")
+    # fi
     # Only payment has a Key Vault role. Giving the URI to the others would make their
     # startup fail with 403 — least privilege shows up in config too.
     if [[ "$svc" == "payment" ]]; then
