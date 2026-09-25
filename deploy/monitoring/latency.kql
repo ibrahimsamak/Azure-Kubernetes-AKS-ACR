@@ -1,0 +1,5 @@
+requests
+| where cloud_RoleName == "orderflow.gateway"
+| summarize p50 = percentile(duration, 50), p95 = percentile(duration, 95), p99 = percentile(duration, 99)
+    by bin(timestamp, 5m)
+| render timechart
