@@ -29,4 +29,10 @@ public sealed class OutboxMessage
     /// <summary>Exponential backoff: do not retry before this time. Stops one broken row
     /// from being hammered every 500ms and drowning the log.</summary>
     public DateTime? NextAttemptUtc { get; set; }
+
+    /// <summary>W3C traceparent of the transaction that CREATED this row ("00-traceid-spanid-01").
+    /// The dispatcher publishes later, from a background loop with no ambient trace; it starts its
+    /// span as a child of this, so request -> outbox -> Kafka -> consumer stays ONE trace.
+    /// Null for rows written outside any trace (and for rows older than this column).</summary>
+    public string? TraceParent { get; init; }
 }
