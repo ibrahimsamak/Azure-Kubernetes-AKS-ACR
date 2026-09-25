@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using OrderFlow.Contracts;
 using OrderFlow.Messaging.Abstractions;
 using OrderFlow.Messaging.Kafka;
+using OrderFlow.Messaging.Telemetry;
 
 public sealed partial class DeadLetterPublisher(IEventPublisher publisher, ILogger<DeadLetterPublisher> logger)
 {
@@ -19,6 +20,7 @@ public sealed partial class DeadLetterPublisher(IEventPublisher publisher, ILogg
 
         await publisher.PublishRawAsync(Topics.DeadLetter(sourceTopic), key, value, headers, ct);
 
+        MessagingTelemetry.DeadLettered.Add(1, new KeyValuePair<string, object?>("messaging.source.name", sourceTopic));
         LogDeadLettered(logger, sourceTopic, key, reason);
     }
 

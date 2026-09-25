@@ -11,6 +11,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OrderFlow.Messaging.Dispatch;
 using OrderFlow.Messaging.Serialization;
+using OrderFlow.Messaging.Telemetry;
 
 public sealed partial class KafkaConsumerHost(
     IOptions<KafkaOptions> options,
@@ -80,15 +81,38 @@ public sealed partial class KafkaConsumerHost(
                 if (result?.Message is null) { continue; }
 
                 var headers = ReadHeaders(result.Message.Headers);
+                headers.TryGetValue(KafkaHeaders.CorrelationId, out var correlationId);
+                headers.TryGetValue(KafkaHeaders.EventType, out var eventType);
 
                 var parent = TraceContextPropagation.Extract(headers);
-                using var activity = KafkaEventPublisher.ActivitySource.StartActivity($"consume {result.Topic}", ActivityKind.Consumer, parent);
+                using var activity = MessagingTelemetry.ActivitySource.StartActivity($"consume {result.Topic}", ActivityKind.Consumer, parent);
                 activity?.SetTag("messaging.system", "kafka");
                 activity?.SetTag("messaging.source.name", result.Topic);
+                activity?.SetTag("messaging.consumer.group.name", o.ConsumerGroupId);
                 activity?.SetTag("messaging.kafka.partition", result.Partition.Value);
                 activity?.SetTag("messaging.kafka.offset", result.Offset.Value);
+                activity?.SetTag("orderflow.correlation_id", correlationId);
+                activity?.SetTag("orderflow.event_type", eventType);
 
-                await HandleWithRetriesAsync(consumer, result, headers, ct);
+                using var logScope = logger.BeginScope(new Dictionary<string, object?>
+                {
+                    ["CorrelationId"] = correlationId,
+                    ["MessageId"] = headers.GetValueOrDefault(KafkaHeaders.MessageId),
+                    ["EventType"] = eventType
+                });
+
+                var started = Stopwatch.GetTimestamp();
+
+                var outcome = await HandleWithRetriesAsync(consumer, result, headers, ct);
+                MessagingTelemetry.HandlerDuration.Record(
+                    Stopwatch.GetElapsedTime(started).TotalSeconds,
+                    new KeyValuePair<string, object?>("orderflow.event_type", eventType),
+                    new KeyValuePair<string, object?>("orderflow.outcome", outcome));
+
+                if (outcome == HandlerOutcome.DeadLettered)
+                {
+                    activity?.SetStatus(ActivityStatusCode.Error, "dead-lettered");
+                }
 
                 try { consumer.Commit(result); }
                 catch (KafkaException ex) { LogCommitFailed(logger, ex); }
@@ -100,7 +124,7 @@ public sealed partial class KafkaConsumerHost(
         }
     }
 
-    private async Task HandleWithRetriesAsync(
+    private async Task<string> HandleWithRetriesAsync(
         IConsumer<string, string> consumer,
         ConsumeResult<string, string> result,
         Dictionary<string, string> headers,
@@ -128,11 +152,11 @@ public sealed partial class KafkaConsumerHost(
                 if (envelope is null)
                 {
                     await DeadLetterAsync(scope, result, headers, "malformed-envelope", ct);
-                    return;
+                    return HandlerOutcome.DeadLettered;
                 }
 
                 await dispatcher.DispatchAsync(envelope, ct);
-                return;
+                return HandlerOutcome.Handled;
             }
             catch (Exception ex) when (attempt < o.MaxHandlerRetries)
             {
@@ -144,9 +168,11 @@ public sealed partial class KafkaConsumerHost(
             {
                 LogHandlerFailedPermanently(logger, ex, result.Offset.Value);
                 await DeadLetterAsync(scope, result, headers, ex.Message, ct);
-                return;
+                return HandlerOutcome.DeadLettered;
             }
         }
+
+        return HandlerOutcome.Handled;
     }
 
     private static async Task DeadLetterAsync(IServiceScope scope, ConsumeResult<string, string> result,
@@ -183,4 +209,10 @@ public sealed partial class KafkaConsumerHost(
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Handler failed permanently; dead-lettering offset {Offset}.")]
     private static partial void LogHandlerFailedPermanently(ILogger logger, Exception exception, long offset);
+}
+
+internal static class HandlerOutcome
+{
+    public const string Handled = "handled";
+    public const string DeadLettered = "dead_lettered";
 }
