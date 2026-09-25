@@ -6,6 +6,7 @@ using OrderFlow.Order.Application.Sagas;
 using OrderFlow.Order.Infrastructure.Persistence.Interceptors;
 using OrderFlow.Order.Infrastructure.Persistence.Repositories;
 using OrderFlow.Order.Infrastructure.Sagas;
+using OrderFlow.Order.Infrastructure.Telemetry;
 
 namespace OrderFlow.Order.Infrastructure.Persistence;
 
@@ -17,10 +18,14 @@ public static class OrderPersistenceRegistration
 
         builder.Services.AddSingleton<ConvertDomainEventsToOutboxInterceptor>();
 
+        builder.Services.AddSingleton<SagaMetricsInterceptor>();
+
         builder.AddSqlServerDbContext<OrderDbContext>(OrderDbContext.ConnectionName);
 
         builder.Services.ConfigureDbContext<OrderDbContext>((sp, options) =>
-            options.AddInterceptors(sp.GetRequiredService<ConvertDomainEventsToOutboxInterceptor>()));
+            options.AddInterceptors(
+                sp.GetRequiredService<SagaMetricsInterceptor>(),
+                sp.GetRequiredService<ConvertDomainEventsToOutboxInterceptor>()));
 
         builder.Services.AddScoped<IOrderRepository, OrderRepository>();
         builder.Services.AddScoped<IOrderSagaRepository, OrderSagaRepository>();
