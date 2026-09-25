@@ -28,3 +28,8 @@ export TOPICS="orderflow.orders.v1 orderflow.inventory.v1 orderflow.payments.v1"
 
 export GH_REPO="${GH_REPO:-ibrahimsamak/Azure-Kubernetes-AKS-ACR}"
 export GH_OIDC_REPO="${GH_OIDC_REPO:-ibrahimsamak@12866385/Azure-Kubernetes-AKS-ACR@1379554158}"
+
+export LAW="log-orderflow-${SUFFIX}"
+export APPI="appi-orderflow-${SUFFIX}"
+export APPI_WEB="appi-orderflow-web-${SUFFIX}"
+export ACTION_GROUP="ag-orderflow-oncall"

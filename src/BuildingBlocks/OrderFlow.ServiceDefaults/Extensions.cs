@@ -1,9 +1,11 @@
+using Azure.Monitor.OpenTelemetry.AspNetCore;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
 using OpenTelemetry;
+using OpenTelemetry.Instrumentation.AspNetCore;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 
@@ -42,16 +44,29 @@ public static class Extensions
             logging.IncludeScopes = true;
         });
 
+        builder.Services.Configure<AspNetCoreTraceInstrumentationOptions>(o =>
+        {
+            o.Filter = ctx => !ctx.Request.Path.StartsWithSegments("/health");
+
+            o.EnrichWithHttpRequest = (activity, request) =>
+            {
+                if (request.Headers.TryGetValue("X-Correlation-Id", out var edgeId))
+                {
+                    activity.SetTag("orderflow.edge_correlation_id", edgeId.ToString());
+                }
+            };
+        });
+
         builder.Services.AddOpenTelemetry()
             .WithMetrics(metrics => metrics
                 .AddAspNetCoreInstrumentation()
                 .AddHttpClientInstrumentation()
-                .AddRuntimeInstrumentation())
+                .AddRuntimeInstrumentation()
+                .AddMeter("OrderFlow.*"))
             .WithTracing(tracing => tracing
                 .AddSource(builder.Environment.ApplicationName)
-                .AddSource("OrderFlow.Messaging")
-                .AddAspNetCoreInstrumentation(o =>
-                    o.Filter = ctx => !ctx.Request.Path.StartsWithSegments("/health"))
+                .AddSource("OrderFlow.*")
+                .AddAspNetCoreInstrumentation()
                 .AddHttpClientInstrumentation());
 
         builder.AddOpenTelemetryExporters();
@@ -62,11 +77,20 @@ public static class Extensions
     {
         var useOtlpExporter = !string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]);
 
-        if (useOtlpExporter)
+        if (!string.IsNullOrWhiteSpace(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
+        {
+            builder.Services.AddOpenTelemetry().UseAzureMonitor(o =>
+            {
+                o.Credential = AzureExtensions.Credential;
+
+                o.SamplingRatio = 1.0F;
+            });
+        }
+        else if (!string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]))
         {
             builder.Services.AddOpenTelemetry().UseOtlpExporter();
         }
-
+        
         return builder;
     }
 

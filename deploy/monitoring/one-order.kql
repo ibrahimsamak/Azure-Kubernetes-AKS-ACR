@@ -1,0 +1,9 @@
+let orderId = "<order id>";
+let ops = union requests, dependencies, traces
+    | where tostring(customDimensions["orderflow.correlation_id"]) == orderId
+         or tostring(customDimensions["CorrelationId"]) == orderId
+    | distinct operation_Id;
+union requests, dependencies, traces, exceptions
+| where operation_Id in (ops)
+| project timestamp, itemType, cloud_RoleName, name, message, duration, success, operation_Id
+| order by timestamp asc

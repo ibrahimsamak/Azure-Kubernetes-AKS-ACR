@@ -19,10 +19,9 @@ for svc in "${SERVICES[@]}"; do
   if [[ "$TARGET" == "azure" ]]; then
     : "${RG:?source infra/env.sh first}"
     args+=(-f "$VALUES/azure.generated.yaml")
-    if [[ "$svc" != "gateway" ]]; then
-      client_id=$(az identity show -g "$RG" -n "id-orderflow-$svc" --query clientId -o tsv)
-      args+=(--set workloadIdentity.enabled=true --set "workloadIdentity.clientId=$client_id")
-    fi
+
+    client_id=$(az identity show -g "$RG" -n "id-orderflow-$svc" --query clientId -o tsv)
+    args+=(--set workloadIdentity.enabled=true --set "workloadIdentity.clientId=$client_id")
     if [[ "$svc" == "payment" ]]; then
       args+=(--set "env.KeyVault__Uri=https://${KV}.vault.azure.net/")
     fi
