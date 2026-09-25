@@ -18,4 +18,6 @@ public sealed class OutboxMessage
     public string? LastError { get; set; }
 
     public DateTime? NextAttemptUtc { get; set; }
+
+    public string? TraceParent { get; init; }
 }
