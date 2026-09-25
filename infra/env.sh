@@ -37,3 +37,8 @@ export GH_REPO="${GH_REPO:-ibrahimsamak/Azure-Kubernetes-AKS-ACR}"   # owner/rep
 # The OIDC `sub` GitHub issues for this repo uses the ID-qualified form owner@<id>/repo@<id>.
 # Entra compares it byte for byte, so the federated credentials must use exactly this.
 export GH_OIDC_REPO="${GH_OIDC_REPO:-ibrahimsamak@12866385/Azure-Kubernetes-AKS-ACR@1379554158}"
+
+export LAW="log-orderflow-${SUFFIX}"
+export APPI="appi-orderflow-${SUFFIX}"            # backend: Entra-only ingestion
+export APPI_WEB="appi-orderflow-web-${SUFFIX}"    # browser: can't hold an Entra token (2P)
+export ACTION_GROUP="ag-orderflow-oncall"
