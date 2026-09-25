@@ -129,6 +129,10 @@ namespace OrderFlow.Inventory.Api.Persistence.Migrations
                     b.Property<DateTime?>("ProcessedOnUtc")
                         .HasColumnType("datetime2");
 
+                    b.Property<string>("TraceParent")
+                        .HasMaxLength(55)
+                        .HasColumnType("nvarchar(55)");
+
                     b.Property<string>("Type")
                         .IsRequired()
                         .HasMaxLength(200)
