@@ -11,6 +11,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OrderFlow.Messaging.Dispatch;
 using OrderFlow.Messaging.Serialization;
+using OrderFlow.Messaging.Telemetry;
 
 public sealed partial class KafkaConsumerHost(
     IOptions<KafkaOptions> options,
@@ -91,16 +92,42 @@ public sealed partial class KafkaConsumerHost(
                 if (result?.Message is null) { continue; }   // poll timeout, no message
 
                 var headers = ReadHeaders(result.Message.Headers);
+                headers.TryGetValue(KafkaHeaders.CorrelationId, out var correlationId);
+                headers.TryGetValue(KafkaHeaders.EventType, out var eventType);
 
                 // Continue the producer's trace instead of starting a fresh one.
                 var parent = TraceContextPropagation.Extract(headers);
-                using var activity = KafkaEventPublisher.ActivitySource.StartActivity($"consume {result.Topic}", ActivityKind.Consumer, parent);
+                using var activity = MessagingTelemetry.ActivitySource.StartActivity($"consume {result.Topic}", ActivityKind.Consumer, parent);
                 activity?.SetTag("messaging.system", "kafka");
                 activity?.SetTag("messaging.source.name", result.Topic);
+                activity?.SetTag("messaging.consumer.group.name", o.ConsumerGroupId);
                 activity?.SetTag("messaging.kafka.partition", result.Partition.Value);
                 activity?.SetTag("messaging.kafka.offset", result.Offset.Value);
+                activity?.SetTag("orderflow.correlation_id", correlationId);
+                activity?.SetTag("orderflow.event_type", eventType);
 
-                await HandleWithRetriesAsync(consumer, result, headers, ct);
+                // Every log line written while this message is handled — by ANY logger, including the
+                // handlers' — carries these three. In App Insights they become filterable dimensions:
+                // "show me everything that happened to order X" is one query.
+                using var logScope = logger.BeginScope(new Dictionary<string, object?>
+                {
+                    ["CorrelationId"] = correlationId,
+                    ["MessageId"] = headers.GetValueOrDefault(KafkaHeaders.MessageId),
+                    ["EventType"] = eventType
+                });
+
+                var started = Stopwatch.GetTimestamp();
+
+                var outcome = await HandleWithRetriesAsync(consumer, result, headers, ct);
+                MessagingTelemetry.HandlerDuration.Record(
+                    Stopwatch.GetElapsedTime(started).TotalSeconds,
+                    new KeyValuePair<string, object?>("orderflow.event_type", eventType),
+                    new KeyValuePair<string, object?>("orderflow.outcome", outcome));
+
+                if (outcome == HandlerOutcome.DeadLettered)
+                {
+                    activity?.SetStatus(ActivityStatusCode.Error, "dead-lettered");
+                }
 
                 // COMMIT LAST — after the DB transaction committed inside the dispatcher.
                 // If we crash before this line, the message is redelivered and the Inbox
@@ -117,7 +144,7 @@ public sealed partial class KafkaConsumerHost(
         }
     }
 
-    private async Task HandleWithRetriesAsync(
+    private async Task<string> HandleWithRetriesAsync(
         IConsumer<string, string> consumer,
         ConsumeResult<string, string> result,
         Dictionary<string, string> headers,
@@ -151,11 +178,11 @@ public sealed partial class KafkaConsumerHost(
                 {
                     // Unparseable bytes will never become parseable. Do not retry; park it.
                     await DeadLetterAsync(scope, result, headers, "malformed-envelope", ct);
-                    return;
+                    return HandlerOutcome.DeadLettered;
                 }
 
                 await dispatcher.DispatchAsync(envelope, ct);
-                return;
+                return HandlerOutcome.Handled;
             }
             catch (Exception ex) when (attempt < o.MaxHandlerRetries)
             {
@@ -170,9 +197,11 @@ public sealed partial class KafkaConsumerHost(
                 // this is the classic "why did the queue stop?" production incident.
                 LogHandlerFailedPermanently(logger, ex, result.Offset.Value);
                 await DeadLetterAsync(scope, result, headers, ex.Message, ct);
-                return;
+                return HandlerOutcome.DeadLettered;
             }
         }
+
+        return HandlerOutcome.Handled;   // only reachable with MaxHandlerRetries <= 0
     }
 
     private static async Task DeadLetterAsync(IServiceScope scope, ConsumeResult<string, string> result,
@@ -210,4 +239,11 @@ public sealed partial class KafkaConsumerHost(
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Handler failed permanently; dead-lettering offset {Offset}.")]
     private static partial void LogHandlerFailedPermanently(ILogger logger, Exception exception, long offset);
+}
+
+/// <summary>Metric tag values — constants so a dashboard query never meets a typo.</summary>
+internal static class HandlerOutcome
+{
+    public const string Handled = "handled";
+    public const string DeadLettered = "dead_lettered";
 }
