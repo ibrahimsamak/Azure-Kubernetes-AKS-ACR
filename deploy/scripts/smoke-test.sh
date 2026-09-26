@@ -23,7 +23,7 @@ expect_status() {
 post_order() {
   curl -fsS -X POST "$BASE/api/v1/orders" "${CURL_EXTRA[@]}" \
     -H "Content-Type: application/json" -H "Idempotency-Key: $2" \
-    -d "{\"customerId\":\"SMOKE\",\"currency\":\"CAD\",\"lines\":[{\"sku\":\"SKU-1\",\"quantity\":1,\"unitPrice\":$1}]}" \
+    -d "{\"currency\":\"CAD\",\"lines\":[{\"sku\":\"SKU-1\",\"quantity\":1,\"unitPrice\":$1}]}" \
   | jq -r .orderId
 }
 
@@ -54,6 +54,12 @@ case "$MODE" in
     expect_status "$BASE/api/v1/orders/$NO_SUCH_ORDER/status" 404 240
     place_and_wait 29.99 Confirmed
     place_and_wait 13.13 Cancelled
+
+    other=(-H "X-Dev-User: 22222222-2222-2222-2222-222222222222" -H "X-Dev-Roles: OrderFlow.Customer")
+    id=$(post_order 29.99 "$(uuid)")
+    code=$(curl -s -o /dev/null -w '%{http_code}' "${other[@]}" "$BASE/api/v1/orders/$id/status")
+    [[ "$code" == "404" ]] || { echo "FAIL another customer got $code for order $id"; exit 1; }
+    echo "ok   another customer gets 404"
     ;;
   edge)
     expect_status "$BASE/api/v1/orders/$NO_SUCH_ORDER/status" "$EDGE_EXPECT" 120

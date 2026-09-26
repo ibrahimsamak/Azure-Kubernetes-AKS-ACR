@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 source infra/env.sh
+: "${TENANT_ID:?}" "${API_APP_ID:?set in infra/env.sh}" "${INVENTORY_APP_ID:?set in infra/env.sh}"
 az config set extension.use_dynamic_install=yes_without_prompt -o none
 APPI_CS=$(az monitor app-insights component show -g "$RG" -a "$APPI" --query connectionString -o tsv 2>/dev/null || echo "")
 
@@ -38,6 +39,11 @@ env:
   Redis__HostName: "${REDIS_HOST:+${REDIS_HOST}:10000}"
 
   ServiceBus__FullyQualifiedNamespace: "${SB_NS}.servicebus.windows.net"
+
+  AzureAd__Instance: "https://login.microsoftonline.com/"
+  AzureAd__TenantId: "${TENANT_ID}"
+  AzureAd__ClientId: "${API_APP_ID}"
+  Inventory__TokenScope: "api://${INVENTORY_APP_ID}/.default"
 EOF
 
 echo "Wrote deploy/helm/values/azure.generated.yaml"

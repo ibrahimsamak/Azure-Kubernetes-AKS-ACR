@@ -25,6 +25,9 @@ for svc in "${SERVICES[@]}"; do
     if [[ "$svc" == "payment" ]]; then
       args+=(--set "env.KeyVault__Uri=https://${KV}.vault.azure.net/")
     fi
+    if [[ "$svc" == "inventory" ]]; then
+      args+=(--set "env.AzureAd__ClientId=$INVENTORY_APP_ID")
+    fi
   else
     args+=(-f "$VALUES/local.yaml")
   fi
