@@ -2,8 +2,7 @@
     <inbound>
         <base />
 
-        <!-- 1. CORS first: browsers send an OPTIONS preflight with no subscription key or token.
-                The cors policy answers it here, before anything else can reject it. -->
+        <!-- 1. CORS first: the browser's OPTIONS preflight carries no token and no key. -->
         <cors allow-credentials="false">
             <allowed-origins>
                 <origin>{{spa-origin}}</origin>
@@ -19,6 +18,11 @@
                 <header>Authorization</header>
                 <header>Idempotency-Key</header>
                 <header>Ocp-Apim-Subscription-Key</header>
+                <!-- W3C trace context from the browser SDK (Day 2, 2P) -->
+                <header>traceparent</header>
+                <header>tracestate</header>
+                <header>request-id</header>
+                <header>request-context</header>
             </allowed-headers>
             <expose-headers>
                 <header>Location</header>
@@ -26,34 +30,37 @@
             </expose-headers>
         </cors>
 
-        <!-- 2. Rate limit per subscription: 30 calls / 60 s. Returns 429 + Retry-After. -->
+        <!-- 2. Rate limit per subscription: 30 calls / 60 s -> 429 + Retry-After. -->
         <rate-limit calls="30" renewal-period="60" />
 
-        <!-- 3. JWT validation, switchable via the named value. Accepts v1 and v2 Entra tokens. -->
-        <choose>
-            <when condition="@("{{require-jwt}}" == "true")">
-                <validate-jwt header-name="Authorization" require-scheme="Bearer"
-                              failed-validation-httpcode="401"
-                              failed-validation-error-message="Missing or invalid access token.">
-                    <openid-config url="https://login.microsoftonline.com/{{tenant-id}}/v2.0/.well-known/openid-configuration" />
-                    <audiences>
-                        <audience>{{api-client-id}}</audience>
-                        <audience>api://{{api-client-id}}</audience>
-                    </audiences>
-                    <issuers>
-                        <issuer>https://login.microsoftonline.com/{{tenant-id}}/v2.0</issuer>
-                        <issuer>https://sts.windows.net/{{tenant-id}}/</issuer>
-                    </issuers>
-                </validate-jwt>
-            </when>
-        </choose>
+        <!-- 3. JWT: ALWAYS. Signature, issuer, audience, lifetime — and the delegated scope. Roles are
+                checked by Order, which knows what each role may do; APIM only knows "is this a
+                legitimate caller of this API at all". -->
+        <validate-jwt header-name="Authorization" require-scheme="Bearer"
+                      failed-validation-httpcode="401"
+                      failed-validation-error-message="Missing or invalid access token.">
+            <openid-config url="https://login.microsoftonline.com/{{tenant-id}}/v2.0/.well-known/openid-configuration" />
+            <audiences>
+                <audience>{{api-client-id}}</audience>
+                <audience>api://{{api-client-id}}</audience>
+            </audiences>
+            <issuers>
+                <issuer>https://login.microsoftonline.com/{{tenant-id}}/v2.0</issuer>
+                <issuer>https://sts.windows.net/{{tenant-id}}/</issuer>
+            </issuers>
+            <required-claims>
+                <claim name="scp" match="any" separator=" ">
+                    <value>Orders.ReadWrite</value>
+                </claim>
+            </required-claims>
+        </validate-jwt>
 
-        <!-- 4. Correlation id: reuse the caller's or mint one. Flows into service logs (and Week 4 traces). -->
+        <!-- 4. Correlation id: reuse the caller's or mint one. The services tag their spans with it. -->
         <set-header name="X-Correlation-Id" exists-action="skip">
             <value>@(context.RequestId.ToString())</value>
         </set-header>
 
-        <!-- 5. The backend must not trust a client-supplied key; it's APIM's business. -->
+        <!-- 5. The subscription key is APIM's business; the backend never sees it. -->
         <set-header name="Ocp-Apim-Subscription-Key" exists-action="delete" />
     </inbound>
 
