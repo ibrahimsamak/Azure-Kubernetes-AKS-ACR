@@ -9,7 +9,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Aspire.Hosting.Kafka" Version="13.5.3" />
+    <PackageReference Include="Aspire.Hosting.Kafka" Version="13.5.4" />
     <PackageReference Include="Aspire.Hosting.RabbitMQ" Version="13.5.3" />
     <PackageReference Include="Aspire.Hosting.Redis" Version="13.5.3" />
     <PackageReference Include="Aspire.Hosting.SqlServer" Version="13.5.3" />
