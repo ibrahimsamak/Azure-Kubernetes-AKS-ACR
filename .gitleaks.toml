@@ -1,0 +1,9 @@
+# Default rules, plus one documented exception.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "docker-compose.yml holds LOCAL-ONLY credentials (SQL Server SA password, RabbitMQ user, fake payment key) for containers on a developer machine or CI runner. Azure SQL is Entra-only (ADR-0011); these values authenticate nothing outside those containers."
+paths = [
+  '''docker-compose\.yml''',
+]
