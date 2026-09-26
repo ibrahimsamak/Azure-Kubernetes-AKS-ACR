@@ -34,6 +34,12 @@ const backoffMs = (attempt: number) => Math.min(1000 * 2 ** attempt, 5000);
         <button type="submit" [disabled]="busy()">{{ busy() ? 'Working…' : 'Place order' }}</button>
       </form>
 
+      <!-- Exercises ownership (someone else's order is 404) and the Support role (reads any order). -->
+      <form (ngSubmit)="lookUp()" class="card">
+        <label>Look up an order by id <input name="lookupId" [(ngModel)]="lookupId" /></label>
+        <button type="submit" [disabled]="busy()">Look up</button>
+      </form>
+
       @if (error()) {
         <p class="error">{{ error() }}</p>
       }
@@ -88,6 +94,8 @@ export class OrderPage {
   readonly status = signal<SagaStatus | null>(null);
   readonly history = signal<StatusChange[]>([]);
 
+  lookupId = '';
+
   placeOrder(): void {
     this.sagaSubscription?.unsubscribe();
     this.busy.set(true);
@@ -96,7 +104,6 @@ export class OrderPage {
     this.history.set([]);
 
     const body = {
-      customerId: 'CUST-1',
       currency: 'CAD',
       street: '1 King St W', city: 'Toronto', postalCode: 'M5H 1A1', country: 'CA',
       lines: [{ sku: this.sku, quantity: this.quantity, unitPrice: this.unitPrice }],
@@ -124,10 +131,30 @@ export class OrderPage {
       });
   }
 
+  lookUp(): void {
+    this.sagaSubscription?.unsubscribe();
+    this.busy.set(true);
+    this.error.set(null);
+    this.status.set(null);
+    this.history.set([]);
+
+    // One GET: starting at the last attempt means sagaChanges stops after the first response.
+    this.sagaSubscription = this.sagaChanges(this.lookupId.trim(), MAX_ATTEMPTS)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: s => {
+          this.status.set(s);
+          this.history.set([{ state: s.state, failureReason: s.failureReason, at: new Date() }]);
+        },
+        error: (e: HttpErrorResponse) => this.fail(e),
+        complete: () => this.busy.set(false),
+      });
+  }
+
   /** Every status the saga reports until it reaches a terminal state (or we give up).
    *  Polling can still skip a state that lasts less than one backoff interval; only a server
    *  push (SignalR) guarantees every transition is seen. */
-  private sagaChanges(orderId: string): Observable<SagaStatus> {
+  private sagaChanges(orderId: string, firstAttempt = 0): Observable<SagaStatus> {
     const fetch = (attempt: number) =>
       this.http.get<SagaStatus>(`${environment.apiBaseUrl}/api/v1/orders/${orderId}/status`, { headers: this.baseHeaders })
         .pipe(
@@ -140,7 +167,7 @@ export class OrderPage {
           map(status => ({ status, attempt })),
         );
 
-    return fetch(0).pipe(
+    return fetch(firstAttempt).pipe(
       expand(({ status, attempt }) =>
         TERMINAL.has(status.state) || attempt >= MAX_ATTEMPTS
           ? EMPTY
@@ -151,8 +178,14 @@ export class OrderPage {
 
   private fail(e: HttpErrorResponse): void {
     this.busy.set(false);
-    // status 0 in the browser almost always means CORS: check spa-origin in APIM.
-    this.error.set(e.status === 0 ? 'Network/CORS error — check APIM spa-origin.' : `${e.status} ${e.statusText}`);
+    const messages: Record<number, string> = {
+      0: 'Network/CORS error — check APIM spa-origin and allowed headers.',
+      401: 'Not signed in, or the token was rejected (audience/issuer/scope).',
+      403: 'Signed in, but your account has no OrderFlow role. Ask an admin to assign one.',
+      404: 'No such order — or it belongs to someone else.',
+      429: 'Too many requests — APIM rate limit. Try again in a minute.',
+    };
+    this.error.set(messages[e.status] ?? `${e.status} ${e.statusText}`);
   }
 }
 
