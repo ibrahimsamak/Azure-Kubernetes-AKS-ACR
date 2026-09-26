@@ -165,10 +165,16 @@ jobs:
           cache: npm
           cache-dependency-path: web/orderflow-web/package-lock.json
 
-      - name: kubeconfig
+      - name: kubeconfig (Entra ID via kubelogin — no certificates)
         run: |
           source infra/env.sh
+          mkdir -p "$HOME/bin"
+          az aks install-cli --install-location "$HOME/bin/kubectl" --kubelogin-install-location "$HOME/bin/kubelogin"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/bin:$PATH"
           az aks get-credentials -g "$RG" -n "$AKS" --overwrite-existing
+          # Use the az session azure/login created (the deploy identity's OIDC login) for cluster tokens.
+          kubelogin convert-kubeconfig -l azurecli
 
       - name: Snapshot current revisions (the rollback target)
         run: bash deploy/scripts/helm-snapshot.sh | tee rollback-revisions.txt
