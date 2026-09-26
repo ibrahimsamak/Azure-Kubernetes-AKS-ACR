@@ -44,6 +44,9 @@ env:
   AzureAd__TenantId: "${TENANT_ID}"
   AzureAd__ClientId: "${API_APP_ID}"
   Inventory__TokenScope: "api://${INVENTORY_APP_ID}/.default"
+
+networkPolicy:
+  enabled: true
 EOF
 
 echo "Wrote deploy/helm/values/azure.generated.yaml"

@@ -5,3 +5,10 @@ env:
 resources:
   requests: { cpu: 150m, memory: 300Mi }
   limits: { memory: 600Mi }
+networkPolicy:
+  allowFrom:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: gateway
+      ports: [8080]

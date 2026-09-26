@@ -1,2 +1,4 @@
 image:
   repository: orderflow/payment-api
+networkPolicy:
+  allowFrom: []

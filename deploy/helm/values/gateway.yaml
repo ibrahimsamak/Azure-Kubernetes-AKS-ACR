@@ -8,3 +8,10 @@ probes:
 ingress:
   enabled: true
 secretEnvFrom: []
+networkPolicy:
+  allowFrom:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: app-routing-system
+      ports: [8080]
