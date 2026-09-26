@@ -44,6 +44,15 @@ spec:
             - name: {{ .name }}
               containerPort: {{ .port }}
             {{- end }}
+          env:
+            - name: K8S_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: OTEL_SERVICE_NAME
+              value: {{ include "svc.name" . | quote }}
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: {{ printf "service.namespace=orderflow,service.version=%s,deployment.environment.name=%s,service.instance.id=$(K8S_POD_NAME)" .Values.image.tag .Values.environment | quote }}
           envFrom:
             - configMapRef:
                 name: {{ include "svc.name" . }}

@@ -1,0 +1,4 @@
+let started   = toscalar(customMetrics | where timestamp > ago(24h) and name == "orderflow.saga.started" | summarize sum(valueSum));
+let confirmed = toscalar(customMetrics | where timestamp > ago(24h) and name == "orderflow.saga.completed"
+                         | where tostring(customDimensions["orderflow.outcome"]) == "confirmed" | summarize sum(valueSum));
+print started = started, confirmed = confirmed, completion_pct = round(100.0 * confirmed / started, 1)

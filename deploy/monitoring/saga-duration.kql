@@ -1,0 +1,4 @@
+customMetrics
+| where name == "orderflow.saga.duration"
+| summarize avg_s = sum(valueSum) / sum(valueCount), max_s = max(valueMax) by bin(timestamp, 15m)
+| render timechart

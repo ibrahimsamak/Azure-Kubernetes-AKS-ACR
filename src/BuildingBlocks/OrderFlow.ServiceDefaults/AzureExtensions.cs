@@ -8,21 +8,20 @@ namespace Microsoft.Extensions.Hosting;
 
 public static class AzureExtensions
 {
+    public static TokenCredential Credential { get; } = new DefaultAzureCredential();
+
     public static TBuilder AddOrderFlowAzure<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
-        TokenCredential credential = new DefaultAzureCredential();
-        builder.Services.AddSingleton(credential);
+        ArgumentNullException.ThrowIfNull(builder);
+        builder.Services.AddSingleton(Credential);
 
         var vaultUri = builder.Configuration["KeyVault:Uri"];
         if (!string.IsNullOrWhiteSpace(vaultUri))
         {
             builder.Configuration.AddAzureKeyVault(
                 new Uri(vaultUri),
-                credential,
-                new AzureKeyVaultConfigurationOptions
-                {
-                    ReloadInterval = TimeSpan.FromMinutes(5)
-                });
+                Credential,
+                new AzureKeyVaultConfigurationOptions { ReloadInterval = TimeSpan.FromMinutes(5) });
         }
 
         return builder;
