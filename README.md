@@ -65,15 +65,19 @@ the inbox claim and any new outbox rows commit together or not at all.
 ## The gateway
 
 Callers know one address, not five. The gateway is the only thing published to the outside; the
-services are unreachable except through it, which is also where authentication and rate limiting
-belong once they exist.
+services are unreachable except through it. It rejects anonymous requests before routing (a valid
+user token for `orderflow-api`); what that user may do is decided by the service that owns the data.
 
 Routing is entirely configuration — no C# decides where a request goes — so splitting a service
 later changes one route here instead of every caller:
 
 ```json
 "Routes": {
-  "orders": { "ClusterId": "order", "Match": { "Path": "/api/v1/orders/{**catch-all}" } }
+  "orders": {
+    "ClusterId": "order",
+    "AuthorizationPolicy": "authenticated-user",
+    "Match": { "Path": "/api/v1/orders/{**catch-all}" }
+  }
 }
 ```
 
@@ -155,9 +159,9 @@ others cannot even try to read a secret.
 ### The edge
 
 APIM answers the CORS preflight first, because a browser's `OPTIONS` request carries neither a
-subscription key nor a token. After that: a rate limit per subscription (`429`), optional JWT
-validation switched by a named value, a correlation id, and the subscription key stripped before
-the request reaches the cluster. Environment-specific values — tenant, audience, allowed origin —
+subscription key nor a token. After that: a rate limit per subscription (`429`), JWT validation
+(signature, issuer, audience, lifetime and the `Orders.ReadWrite` scope — always on), a correlation
+id, and the subscription key stripped before the request reaches the cluster. Environment-specific values — tenant, audience, allowed origin —
 are APIM named values, so the policy in
 [`deploy/apim/orderflow-api-policy.xml`](deploy/apim/orderflow-api-policy.xml) is the same in every
 environment.
@@ -168,7 +172,8 @@ reaches any pod, so the edge is a first line of defence, not the only one.
 ### The web app
 
 [`web/orderflow-web`](web/orderflow-web) is a small Angular 22 single-page app, hosted on **Azure
-Static Web Apps**, that places an order through APIM and shows the saga as it happens.
+Static Web Apps**, that signs the user in with Entra ID (MSAL), places an order through APIM and
+shows the saga as it happens.
 
 ![The OrderFlow web app: an order placed at 29.99 moves through Pending, AwaitingStock and AwaitingPayment to Confirmed](img/Screenshot.png)
 
@@ -185,8 +190,13 @@ Static Web Apps**, that places an order through APIM and shows the saga as it ha
   `Retry-After` and polling again, because the order itself hasn't failed.
 - **The failure path from the UI.** A unit price of **13.13** makes the fake payment gateway
   decline, so you can watch `Compensating` → `Cancelled` in the browser.
-- **Helpful errors.** A status of `0` in the browser almost always means CORS, so the page says
-  "check APIM spa-origin" instead of showing a bare error.
+- **Sign-in with MSAL.** Auth code + PKCE via redirect; tokens live in `sessionStorage`, so they
+  die with the tab. `MsalInterceptor` attaches `Authorization: Bearer …` only to calls to
+  `apiBaseUrl` — never to another host.
+- **Look up any order by id.** Exercises ownership (someone else's order is `404`) and the Support
+  role (reads any order).
+- **Helpful errors.** `0` (almost always CORS), `401`, `403` (signed in, but no OrderFlow role),
+  `404` and `429` each get a sentence saying what to check instead of a bare status.
 - **Static Web Apps config.** [`staticwebapp.config.json`](web/orderflow-web/public/staticwebapp.config.json)
   sends unknown routes to `index.html` and adds `nosniff` and a strict referrer policy to every
   response.
@@ -194,7 +204,8 @@ Static Web Apps**, that places an order through APIM and shows the saga as it ha
 The APIM subscription key is not in git: `apimSubscriptionKey` in `src/environments/` is empty.
 Paste the key from APIM (**Subscriptions**) before running or building, and don't commit it. It
 still isn't a security boundary: the built JavaScript contains it, so it only identifies the app
-for rate limiting and analytics. Signing in (MSAL + a bearer token checked at every hop) is the next step.
+for rate limiting and analytics. Who the user is comes from the bearer token, checked at every hop —
+see [Security](#security).
 
 ### Notification fan-out
 
@@ -233,6 +244,106 @@ Only the gateway has an ingress. Everything else is a `ClusterIP` Service.
 - **Topic creation.** Topics are provisioned as event hubs up front, so `Kafka__ProvisionTopics` is
   `false` in Azure.
 
+## Security
+
+Every hop proves who is calling and checks it again; nothing trusts the hop before it, because each
+one can be bypassed (the ingress IP is public, `kubectl port-forward` reaches any pod).
+
+```mermaid
+flowchart LR
+    U(("User")) --> SPA["Angular + MSAL"]
+    SPA -->|"1 sign in (auth code + PKCE)"| EID["Entra ID"]
+    EID -->|"2 access token<br/>aud=orderflow-api · scp=Orders.ReadWrite<br/>roles=[OrderFlow.Customer] · oid=…"| SPA
+    SPA -->|"3 Bearer + subscription key"| APIM["APIM<br/>validate-jwt + scp"]
+    APIM -->|"4 same Bearer"| GW["Gateway (YARP)<br/>validates again:<br/>authenticated user"]
+    GW -->|"5 same Bearer"| ORD["Order<br/>validates again:<br/>scope + role + ownership"]
+    ORD -->|"6 NEW token from its managed identity<br/>aud=orderflow-inventory · roles=[Inventory.Read]"| INV["Inventory gRPC<br/>requires Inventory.Read"]
+    ORD -.->|"7 events carry CustomerId as DATA<br/>(trust = Event Hubs RBAC)"| K["Event Hubs"]
+```
+
+| Caller | May | Token must carry | Enforced by |
+|---|---|---|---|
+| Signed-in **customer** | place orders; read **their own** orders | `aud`=orderflow-api · `scp` ∋ `Orders.ReadWrite` · `roles` ∋ `OrderFlow.Customer` | APIM (aud, scp) → gateway (valid user token) → Order (scope + role + ownership) |
+| Signed-in **support** agent | read **any** order's status | … `roles` ∋ `OrderFlow.Support` | same; Order skips the ownership check |
+| **Order** service (managed identity) | call Inventory's `CheckAvailability` | `aud`=orderflow-inventory · `roles` ∋ `Inventory.Read` | Inventory gRPC endpoint |
+| Payment, Notification | — (no inbound API) | — | nothing to call; their trust boundary is Event Hubs RBAC |
+| Anyone else | nothing | — | 401 at the first hop that sees them |
+
+- **Identity comes from the token.** The customer id is the token's `oid`, never a field in the
+  body. Someone else's order is a `404`, not a `403` — a `403` would confirm the id exists.
+- **Scopes and roles.** The scope says *the SPA may call the API for this user*; it can't tell a
+  customer from a support agent. App roles, assigned in Entra, can. The API requires assignment,
+  so an unassigned user can't even get a token.
+- **Service to service.** Order doesn't forward the user's token (wrong audience, and Inventory
+  mustn't act with user rights); it asks Entra for an app-only token with its own managed identity.
+- **Locally**, `Auth:Mode=Local` signs every request in as a developer principal shaped like a real
+  token, so the same policies run under Aspire and compose. `X-Dev-User` / `X-Dev-Roles` override
+  it per request. The switch throws at startup if the environment is `Production`.
+- **The cluster** accepts only Entra identities (local accounts disabled, `kubelogin`), and the
+  pipeline's deploy identity may write to the `orderflow` namespace only (ADR-0019).
+- **NetworkPolicies** in Azure: the gateway accepts connections only from the ingress controller,
+  Order only from the gateway, Inventory only from Order (gRPC port), Payment and Notification from
+  nobody.
+- **Supply chain.** Trivy gates images on fixable HIGH/CRITICAL CVEs and scans the chart and
+  Dockerfiles for misconfiguration; gitleaks scans the full history for committed secrets; actions
+  are pinned by commit SHA; Dependabot opens grouped update PRs weekly.
+
+**Zero secrets** (see [above](#zero-secrets)) is checked, not claimed:
+[`deploy/scripts/secrets-audit.sh`](deploy/scripts/secrets-audit.sh) prints PASS/FAIL for every
+setting that would bring a shared secret back if flipped. The threat model — assets, trust
+boundaries, STRIDE threats, and the gaps accepted on purpose — is in
+[`docs/security.md`](docs/security.md). The app registrations are recorded in
+[`infra/entra-apps.md`](infra/entra-apps.md).
+
+## Delivery & observability
+
+```mermaid
+flowchart LR
+    PR["pull request"] --> CI["ci.yml<br/>build · unit · contract<br/>integration (Testcontainers)<br/>web build · secret + config scan"]
+    MERGE["merge to main"] --> C2
+    subgraph CD["cd.yml"]
+        direction LR
+        C2["ci (reused)"] --> IMG["images ×5<br/>buildx → Trivy → SBOM<br/>→ push ACR :sha"]
+        IMG --> E2E["staging<br/>compose e2e on the runner<br/>from the ACR images"]
+        E2E --> GATE{{"production<br/>required reviewer"}}
+        GATE --> DEP["deploy<br/>helm ×5 · APIM policy · SPA"]
+        DEP --> SMK["edge smoke test"]
+        SMK -- fails --> RB["helm rollback ×5"]
+    end
+    DEP --> AKS[("AKS")]
+    AKS --> OT["OpenTelemetry"] --> AI["Application Insights<br/>Azure Monitor"]
+```
+
+- **Build once, promote the same image.** Every image is tagged with the commit SHA, scanned once,
+  and that exact tag is what staging and production run. GitHub logs in to Azure with OIDC
+  federation — no secret is stored in GitHub.
+- **Environments and gates.** `staging` is ephemeral: the five images run with docker compose on
+  the runner and a smoke test drives the happy path, compensation, idempotency and ownership.
+  `production` needs a required reviewer and deploys from `main` only.
+- **Rolling back.** A failed production deploy rolls every release back to the revision recorded
+  before it started. To redeploy an earlier build by hand: `gh workflow run rollback.yml -f sha=<sha>`.
+
+```mermaid
+flowchart LR
+    subgraph POD["each pod (5 services)"]
+        APP[".NET app<br/>ActivitySource / Meter / ILogger"] --> SDK["OpenTelemetry SDK<br/>+ Azure Monitor distro"]
+    end
+    SDK -- "Entra token<br/>(Monitoring Metrics Publisher)" --> AI["appi-orderflow<br/>local auth DISABLED"]
+    SPA["Angular SPA<br/>AI JavaScript SDK"] --> AIW["appi-orderflow-web<br/>(browser — public by nature)"]
+    FN["Function"] --> AI
+    AKS["AKS nodes / pods<br/>Container insights"] --> LAW
+    AI --> LAW[("Log Analytics<br/>log-orderflow")]
+    AIW --> LAW
+    LAW --> WB["Workbook<br/>latency · errors · saga"]
+    LAW --> AL["Alert rules"] --> AG["Action group<br/>email"]
+    DEV["local: Aspire dashboard"] -.->|OTLP| SDK
+```
+
+One order is one trace across every hop, including the Kafka hops: the outbox row stores the W3C
+`traceparent` of the transaction that wrote it. Alerts: `orderflow-dead-letters`,
+`orderflow-saga-stuck`, `orderflow-outbox-failing`, `orderflow-error-rate`, `orderflow-latency`,
+`orderflow-pod-restarts`. The workbook queries are in [`deploy/monitoring`](deploy/monitoring).
+
 ## Stack
 
 .NET 10 · ASP.NET Core · EF Core (SQL Server) · Kafka · gRPC · YARP · .NET Aspire · Docker ·
@@ -241,8 +352,8 @@ OpenTelemetry · xUnit · Testcontainers · PactNet
 **Web:** Angular 22 (standalone components, signals) · RxJS · TypeScript
 
 **Azure:** AKS · Helm · ACR · API Management · Event Hubs · Service Bus · Azure Functions
-(isolated worker) · Azure SQL (serverless) · Key Vault · Entra ID Workload Identity · Static Web
-Apps
+(isolated worker) · Azure SQL (serverless) · Key Vault · Entra ID (MSAL, app roles, Workload
+Identity) · Static Web Apps · Application Insights
 
 ## Running it
 
@@ -299,9 +410,12 @@ source infra/env.sh
 # Once: the platform, the identities and the database users
 bash infra/provision.sh          # RG, ACR, AKS, SQL, Event Hubs, Service Bus, Key Vault
 bash infra/identities.sh         # managed identities, federated credentials, role assignments
+bash infra/entra-apps.sh         # app registrations, app roles, Order's Inventory.Read (infra/entra-apps.md)
+bash infra/aks-entra-rbac.sh     # AKS: Entra ID + Azure RBAC, local accounts off (ADR-0019)
 #   + run infra/sql/create-service-users.sql in each database (as the Entra admin)
 #   + az keyvault secret set --vault-name "$KV" -n PaymentGateway--ApiKey --value <key>
 az aks get-credentials -g "$RG" -n "$AKS" --overwrite-existing
+kubelogin convert-kubeconfig -l azurecli         # kubectl authenticates through Entra ID
 
 # Every release
 export TAG=$(date +%Y%m%d-%H%M)              # a new tag, so the pods really roll
@@ -345,7 +459,7 @@ Requires Node.js and npm.
 cd web/orderflow-web
 npm ci
 # paste the APIM subscription key into src/environments/ first (never commit it)
-npx ng serve                                  # http://localhost:4200
+npx ng serve                                  # http://localhost:4200 -> Sign in
 npx ng build --configuration production       # -> dist/orderflow-web/browser, what Static Web Apps serves
 ```
 
@@ -357,7 +471,9 @@ or `http://localhost:8080` for the compose stack. If you run it on localhost aga
 
 Through the gateway on `:8080` under compose; under Aspire, the gateway's port is on the dashboard;
 on Azure, through `https://<apim-name>.azure-api.net/orderflow` with an `Ocp-Apim-Subscription-Key`
-header.
+header and an Entra access token for `orderflow-api`
+(`az account get-access-token --resource api://<orderflow-api client id>`). Locally the services
+run with `Auth:Mode=Local`: no token needed, and `X-Dev-User` / `X-Dev-Roles` act as someone else.
 
 ```bash
 # Place an order. 202 with a poll URL: the work finishes asynchronously, so 201 would be a lie.
@@ -365,15 +481,20 @@ curl -X POST http://localhost:8080/api/v1/orders \
   -H 'Content-Type: application/json' \
   -H 'Idempotency-Key: 8f14e45f-ea8d-4b9a-9c1e-2b7d6f0a1c33' \
   -d '{
-        "customerId": "cust-1",
         "currency": "USD",
         "lines": [{ "sku": "SKU-1", "quantity": 2, "unitPrice": 19.99 }]
       }'
 
 # Follow the saga
 curl http://localhost:8080/api/v1/orders/{id}/status
-# -> { "orderId": "...", "state": "AwaitingPayment", "failureReason": null, "startedAtUtc": "..." }
+# -> { "orderId": "...", "customerId": "<oid>", "state": "AwaitingPayment", "failureReason": null, ... }
+
+# The same order as another customer: 404, not 403
+curl -i http://localhost:8080/api/v1/orders/{id}/status \
+  -H 'X-Dev-User: 22222222-2222-2222-2222-222222222222' -H 'X-Dev-Roles: OrderFlow.Customer'
 ```
+
+There is no `customerId` in the body: who is ordering is the token's `oid`.
 
 Repeating a POST with the same `Idempotency-Key` returns the original order rather than creating a
 second one.
