@@ -12,6 +12,9 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
 builder.AddOrderFlowAzure();
+builder.AddOrderFlowAuthentication();
+builder.Services.AddAuthorizationBuilder()
+    .AddPolicy("inventory.query", p => p.RequireRole("Inventory.Read"));
 
 builder.Services.AddDbContext<InventoryDbContext>(o =>
     o.UseSqlServer(builder.Configuration.GetConnectionString("orderflow-inventory"),
@@ -34,7 +37,9 @@ builder.Services.AddGrpc();
 var app = builder.Build();
 
 app.MapDefaultEndpoints();
-app.MapGrpcService<InventoryQueryService>();
+app.UseAuthentication();
+app.UseAuthorization();
+app.MapGrpcService<InventoryQueryService>().RequireAuthorization("inventory.query");
 
 if (app.Configuration.GetValue("Database:MigrateOnStartup", true))
 {
