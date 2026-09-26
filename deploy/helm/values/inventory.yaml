@@ -9,3 +9,11 @@ env:
   Kestrel__Endpoints__http__Protocols: "Http1"
   Kestrel__Endpoints__grpc__Url: "http://+:8081"
   Kestrel__Endpoints__grpc__Protocols: "Http2"
+# Only Order, and only the gRPC port.
+networkPolicy:
+  allowFrom:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: order
+      ports: [8081]

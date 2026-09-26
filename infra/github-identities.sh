@@ -38,6 +38,9 @@ fic id-orderflow-gha-deploy gh-production "repo:${GH_OIDC_REPO}:environment:prod
 DEPLOY_P=$(az identity show -g "$RG" -n id-orderflow-gha-deploy --query principalId -o tsv)
 assign "$DEPLOY_P" Reader                                        "$RG_ID"
 assign "$DEPLOY_P" "Azure Kubernetes Service Cluster User Role" "$AKS_ID"
+# Day 3 (ADR-0019): with Azure RBAC for Kubernetes, this is what Helm may do — ONE namespace, nothing
+# cluster-wide. Harmless before the cluster is switched; it takes effect once it is.
+assign "$DEPLOY_P" "Azure Kubernetes Service RBAC Writer"       "$AKS_ID/namespaces/$K8S_NS"
 assign "$DEPLOY_P" AcrPull                                       "$ACR_ID"
 if [[ -n "$APIM_ID" ]]; then assign "$DEPLOY_P" "API Management Service Contributor" "$APIM_ID"; fi
 if [[ -n "$SWA_ID"  ]]; then assign "$DEPLOY_P" Contributor                          "$SWA_ID"; fi

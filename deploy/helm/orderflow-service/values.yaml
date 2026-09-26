@@ -67,3 +67,9 @@ ingress:
   enabled: false
   className: ""
   path: /api
+
+# ---- network policy (Day 3) ----
+# enabled per environment (write-azure-values.sh turns it on in Azure); allowFrom per service.
+networkPolicy:
+  enabled: false
+  allowFrom: []

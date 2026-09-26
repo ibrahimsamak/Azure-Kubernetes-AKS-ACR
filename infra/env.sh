@@ -42,3 +42,9 @@ export LAW="log-orderflow-${SUFFIX}"
 export APPI="appi-orderflow-${SUFFIX}"            # backend: Entra-only ingestion
 export APPI_WEB="appi-orderflow-web-${SUFFIX}"    # browser: can't hold an Entra token (2P)
 export ACTION_GROUP="ag-orderflow-oncall"
+
+# ---- Week 4 Day 3: Entra app registrations. Identifiers, not secrets — safe in git. ----
+export TENANT_ID="${TENANT_ID:-345f3725-4a76-4514-b265-f36d116154cc}"
+export API_APP_ID="${API_APP_ID:-28b01914-9a4a-4555-8626-d516a358da1b}"         # orderflow-api
+export SPA_APP_ID="${SPA_APP_ID:-74acbc9d-f79e-4499-b669-19392d3dfdde}"         # orderflow-spa
+export INVENTORY_APP_ID="${INVENTORY_APP_ID:-}"   # orderflow-inventory — fill in after infra/entra-apps.sh creates it

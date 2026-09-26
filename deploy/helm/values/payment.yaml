@@ -1,2 +1,5 @@
 image:
   repository: orderflow/payment-api
+# Nobody: no inbound API. Its trust boundary is Event Hubs RBAC.
+networkPolicy:
+  allowFrom: []

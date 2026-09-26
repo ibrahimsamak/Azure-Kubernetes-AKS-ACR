@@ -3,7 +3,9 @@
 #   docker compose --profile apps up --build      -> infrastructure + all services in containers
 
 x-service-env: &service-env
-  ASPNETCORE_ENVIRONMENT: Production
+  # Not "Production": Auth:Mode=Local refuses to start in Production, which is the point.
+  ASPNETCORE_ENVIRONMENT: Local
+  Auth__Mode: "Local"
   ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
   ConnectionStrings__kafka: "kafka:29092"
   Logging__Console__FormatterName: "json"

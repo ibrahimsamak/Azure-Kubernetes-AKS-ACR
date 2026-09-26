@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 source infra/env.sh
+: "${TENANT_ID:?}" "${API_APP_ID:?set in infra/env.sh}" "${INVENTORY_APP_ID:?set in infra/env.sh}"
 az config set extension.use_dynamic_install=yes_without_prompt -o none   # app-insights commands are an extension
 APPI_CS=$(az monitor app-insights component show -g "$RG" -a "$APPI" --query connectionString -o tsv 2>/dev/null || echo "")
 
@@ -48,6 +49,16 @@ env:
 
   # Service Bus (only Notification reads it)
   ServiceBus__FullyQualifiedNamespace: "${SB_NS}.servicebus.windows.net"
+
+  # Entra ID token validation. Identifiers only — the signing keys come from Entra's metadata.
+  AzureAd__Instance: "https://login.microsoftonline.com/"
+  AzureAd__TenantId: "${TENANT_ID}"
+  AzureAd__ClientId: "${API_APP_ID}"                          # gateway + order: audience orderflow-api
+  Inventory__TokenScope: "api://${INVENTORY_APP_ID}/.default" # only Order reads it
+
+# Ingress-only default deny per pod; each service's values file lists who may connect (3N).
+networkPolicy:
+  enabled: true
 EOF
 
 echo "Wrote deploy/helm/values/azure.generated.yaml"

@@ -1,2 +1,5 @@
 image:
   repository: orderflow/notification-api
+# Nobody: no inbound API. Its trust boundary is Event Hubs RBAC.
+networkPolicy:
+  allowFrom: []

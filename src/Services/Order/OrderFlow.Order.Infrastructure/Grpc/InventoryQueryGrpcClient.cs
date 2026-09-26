@@ -42,8 +42,19 @@ public sealed partial class InventoryQueryGrpcClient(
             LogUnavailable(logger, ex);
             return new AvailabilityResult(Known: false, AllAvailable: true, FirstUnavailableSku: null);
         }
+        catch (RpcException ex) when (ex.StatusCode is StatusCode.Unauthenticated or StatusCode.PermissionDenied)
+        {
+            // Not an outage: a DEPLOYMENT bug (role not assigned, wrong audience, token scope missing).
+            // Degrade like an outage so customers can still order, but log at Error: it shows up in
+            // App Insights Failures and trips the error-rate alert on the next deploy.
+            LogRejected(logger, ex.StatusCode, ex);
+            return new AvailabilityResult(Known: false, AllAvailable: true, FirstUnavailableSku: null);
+        }
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Inventory availability check unavailable; proceeding without it.")]
     private static partial void LogUnavailable(ILogger logger, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Inventory rejected Order's credentials ({Status}); check the Inventory.Read app role and Inventory:TokenScope.")]
+    private static partial void LogRejected(ILogger logger, StatusCode status, Exception exception);
 }

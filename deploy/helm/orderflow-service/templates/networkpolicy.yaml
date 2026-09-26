@@ -1,0 +1,30 @@
+{{- /* Tokens stop unauthorised CALLS; this stops CONNECTIONS. Ingress-only default deny for this
+       service's pods, plus the explicit allowFrom list from its values file. Egress stays open: the
+       pods need Entra, SQL, Event Hubs, Service Bus, Key Vault and App Insights, and restricting that
+       properly needs FQDN policies or a firewall (a gap noted in docs/security.md). */ -}}
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "svc.name" . }}
+  labels:
+    {{- include "svc.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "svc.selectorLabels" . | nindent 6 }}
+  policyTypes: ["Ingress"]
+  # An empty list = deny all inbound. Kubelet probes come from the node and are not blocked.
+  ingress:
+    {{- range .Values.networkPolicy.allowFrom }}
+    - from:
+        {{- toYaml .from | nindent 8 }}
+      ports:
+        {{- range .ports }}
+        - port: {{ . }}
+          protocol: TCP
+        {{- end }}
+    {{- else }}
+    []
+    {{- end }}
+{{- end }}

@@ -12,7 +12,11 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();     // OTel, health, service discovery
 builder.AddOrderFlowAzure();     // NEW
-
+builder.AddOrderFlowAuthentication();     // audience = orderflow-inventory (AzureAd:ClientId)
+builder.Services.AddAuthorizationBuilder()
+    // App-only tokens carry app roles in "roles", exactly like user tokens. No scope: nobody calls
+    // this on behalf of a user.
+    .AddPolicy("inventory.query", p => p.RequireRole("Inventory.Read"));
 
 builder.Services.AddDbContext<InventoryDbContext>(o =>
     o.UseSqlServer(builder.Configuration.GetConnectionString("orderflow-inventory"),
@@ -39,8 +43,11 @@ builder.Services.AddGrpc();
 
 var app = builder.Build();
 
-app.MapDefaultEndpoints();          // /health, /alive — used by k8s probes in Week 3
-app.MapGrpcService<InventoryQueryService>();
+app.MapDefaultEndpoints();                // /health/* stay anonymous for the kubelet
+app.UseAuthentication();
+app.UseAuthorization();
+// No token -> gRPC Unauthenticated; a token without the role -> PermissionDenied.
+app.MapGrpcService<InventoryQueryService>().RequireAuthorization("inventory.query");
 
 // Opt-out, so a migration Job can take over later (stretch goal).
 if (app.Configuration.GetValue("Database:MigrateOnStartup", true))

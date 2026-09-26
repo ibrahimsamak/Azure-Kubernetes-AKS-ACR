@@ -16,9 +16,14 @@ SERVICES=(inventory payment notification order gateway)
 for svc in "${SERVICES[@]}"; do
   args=(
     upgrade --install "$svc" "$CHART"
-    --namespace "$NS" --create-namespace
+    --namespace "$NS"
     -f "$VALUES/common.yaml"
   )
+  # In Azure the deploy identity is scoped to ONE namespace and can't read Namespace objects, which
+  # --create-namespace needs. The namespace was created once by an admin (3K).
+  if [[ "$TARGET" == "local" ]]; then
+    args+=(--create-namespace)
+  fi
 
   if [[ "$TARGET" == "azure" ]]; then
     : "${RG:?source infra/env.sh first}"
@@ -35,6 +40,10 @@ for svc in "${SERVICES[@]}"; do
     # startup fail with 403 — least privilege shows up in config too.
     if [[ "$svc" == "payment" ]]; then
       args+=(--set "env.KeyVault__Uri=https://${KV}.vault.azure.net/")
+    fi
+    # Inventory validates tokens for ITS OWN audience, not orderflow-api's.
+    if [[ "$svc" == "inventory" ]]; then
+      args+=(--set "env.AzureAd__ClientId=$INVENTORY_APP_ID")
     fi
   else
     args+=(-f "$VALUES/local.yaml")
