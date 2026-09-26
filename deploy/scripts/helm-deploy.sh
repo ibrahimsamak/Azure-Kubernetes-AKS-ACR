@@ -12,9 +12,12 @@ SERVICES=(inventory payment notification order gateway)
 for svc in "${SERVICES[@]}"; do
   args=(
     upgrade --install "$svc" "$CHART"
-    --namespace "$NS" --create-namespace
+    --namespace "$NS"
     -f "$VALUES/common.yaml"
   )
+  if [[ "$TARGET" == "local" ]]; then
+    args+=(--create-namespace)
+  fi
 
   if [[ "$TARGET" == "azure" ]]; then
     : "${RG:?source infra/env.sh first}"
