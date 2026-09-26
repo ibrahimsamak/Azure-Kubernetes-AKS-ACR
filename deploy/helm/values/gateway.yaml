@@ -8,3 +8,11 @@ probes:
 ingress:
   enabled: true
 secretEnvFrom: []
+# Only the ingress controller (the App Routing add-on runs in app-routing-system).
+networkPolicy:
+  allowFrom:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: app-routing-system
+      ports: [8080]

@@ -55,6 +55,10 @@ env:
   AzureAd__TenantId: "${TENANT_ID}"
   AzureAd__ClientId: "${API_APP_ID}"                          # gateway + order: audience orderflow-api
   Inventory__TokenScope: "api://${INVENTORY_APP_ID}/.default" # only Order reads it
+
+# Ingress-only default deny per pod; each service's values file lists who may connect (3N).
+networkPolicy:
+  enabled: true
 EOF
 
 echo "Wrote deploy/helm/values/azure.generated.yaml"
