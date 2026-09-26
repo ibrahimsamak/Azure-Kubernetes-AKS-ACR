@@ -9,7 +9,9 @@ MODE=${1:?usage: smoke-test.sh full|edge <base-url>}
 BASE=${2:?usage: smoke-test.sh full|edge <base-url>}
 EDGE_EXPECT=${EDGE_EXPECT:-404}
 NO_SUCH_ORDER="00000000-0000-0000-0000-000000000000"
-CURL_EXTRA=()     # Day 3 adds dev-auth headers here
+# Extra curl args for every request. Against the Local auth mode (compose / staging e2e) no header is
+# needed — every request is the default dev principal; X-Dev-User / X-Dev-Roles override it.
+CURL_EXTRA=()
 
 uuid() { cat /proc/sys/kernel/random/uuid 2>/dev/null || powershell -NoProfile -Command "[guid]::NewGuid().ToString()"; }
 
@@ -29,7 +31,7 @@ expect_status() {
 post_order() {
   curl -fsS -X POST "$BASE/api/v1/orders" "${CURL_EXTRA[@]}" \
     -H "Content-Type: application/json" -H "Idempotency-Key: $2" \
-    -d "{\"customerId\":\"SMOKE\",\"currency\":\"CAD\",\"lines\":[{\"sku\":\"SKU-1\",\"quantity\":1,\"unitPrice\":$1}]}" \
+    -d "{\"currency\":\"CAD\",\"lines\":[{\"sku\":\"SKU-1\",\"quantity\":1,\"unitPrice\":$1}]}" \
   | jq -r .orderId
 }
 
@@ -62,6 +64,13 @@ case "$MODE" in
     expect_status "$BASE/api/v1/orders/$NO_SUCH_ORDER/status" 404 240 # gateway -> order routing up
     place_and_wait 29.99 Confirmed                                   # Pending -> ... -> Confirmed
     place_and_wait 13.13 Cancelled                                   # payment declines -> compensation
+
+    # Ownership: a different customer asking for this order must get 404 — not 403, not 200.
+    other=(-H "X-Dev-User: 22222222-2222-2222-2222-222222222222" -H "X-Dev-Roles: OrderFlow.Customer")
+    id=$(post_order 29.99 "$(uuid)")
+    code=$(curl -s -o /dev/null -w '%{http_code}' "${other[@]}" "$BASE/api/v1/orders/$id/status")
+    [[ "$code" == "404" ]] || { echo "FAIL another customer got $code for order $id"; exit 1; }
+    echo "ok   another customer gets 404"
     ;;
   edge)
     expect_status "$BASE/api/v1/orders/$NO_SUCH_ORDER/status" "$EDGE_EXPECT" 120

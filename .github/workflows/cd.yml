@@ -190,7 +190,8 @@ jobs:
         run: |
           ip=$(kubectl get ingress gateway -n orderflow -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
           echo "url=http://$ip" >> "$GITHUB_OUTPUT"
-          bash deploy/scripts/smoke-test.sh edge "http://$ip"
+          # Anonymous request at the gateway: 401 proves auth is enforced there (Day 3).
+          EDGE_EXPECT=401 bash deploy/scripts/smoke-test.sh edge "http://$ip"
 
       - name: Roll back ALL releases
         if: failure()
