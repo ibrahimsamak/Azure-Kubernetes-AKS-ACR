@@ -4,6 +4,7 @@ using OrderFlow.Order.Application.Abstractions;
 
 public sealed record OrderSagaStatus(
     Guid OrderId,
+    string CustomerId,
     string State,
     string? FailureReason,
     DateTime StartedAtUtc,
@@ -16,6 +17,7 @@ public sealed class GetOrderSagaStatusQueryHandler(IOrderSagaRepository sagas)
         var saga = await sagas.GetAsync(orderId, ct);
         return saga is null
             ? null
-            : new OrderSagaStatus(saga.Id, saga.State.ToString(), saga.FailureReason, saga.StartedAtUtc, saga.DeadlineUtc);
+            : new OrderSagaStatus(saga.Id, saga.CustomerId, saga.State.ToString(), saga.FailureReason,
+                                  saga.StartedAtUtc, saga.DeadlineUtc);
     }
 }

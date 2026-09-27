@@ -1,23 +1,25 @@
 namespace OrderFlow.Order.Api.Controllers;
 
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Identity.Web;
+using OrderFlow.Order.Api.Security;
 using OrderFlow.Order.Application.Orders.Commands.PlaceOrder;
 using OrderFlow.Order.Application.Sagas;
 
 public sealed record PlaceOrderLineRequest(string Sku, int Quantity, decimal UnitPrice);
 
-public sealed record PlaceOrderRequest(
-    string CustomerId,
-    string Currency,
-    IReadOnlyList<PlaceOrderLineRequest> Lines);
+public sealed record PlaceOrderRequest(string Currency, IReadOnlyList<PlaceOrderLineRequest> Lines);
 
 [ApiController]
 [Route("api/v1/orders")]
+[Authorize(Policy = OrderPolicies.ReadOrders)]
 public sealed class OrdersController(
     PlaceOrderCommandHandler placeOrder,
     GetOrderSagaStatusQueryHandler sagaStatus) : ControllerBase
 {
     [HttpPost]
+    [Authorize(Policy = OrderPolicies.PlaceOrder)]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
     public async Task<IActionResult> Place(
         PlaceOrderRequest request,
@@ -26,8 +28,10 @@ public sealed class OrdersController(
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        if (User.GetObjectId() is not { } customerId) { return Forbid(); }
+
         var command = new PlaceOrderCommand(
-            request.CustomerId,
+            customerId,
             request.Currency,
             [.. request.Lines.Select(l => new PlaceOrderLine(l.Sku, l.Quantity, l.UnitPrice))],
             idempotencyKey);
@@ -43,6 +47,11 @@ public sealed class OrdersController(
     public async Task<IActionResult> GetStatus(Guid id, CancellationToken ct)
     {
         var status = await sagaStatus.HandleAsync(id, ct);
-        return status is null ? NotFound() : Ok(status);
+        if (status is null) { return NotFound(); }
+
+        var mayReadAny = User.IsInRole(OrderPolicies.SupportRole);
+        if (!mayReadAny && status.CustomerId != User.GetObjectId()) { return NotFound(); }
+
+        return Ok(status);
     }
 }
