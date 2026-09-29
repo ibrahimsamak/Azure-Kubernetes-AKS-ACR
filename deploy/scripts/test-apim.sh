@@ -6,6 +6,8 @@ source infra/env.sh
 APIM_URL="https://${APIM}.azure-api.net/orderflow"
 ZERO=00000000-0000-0000-0000-000000000000
 SB_URL="https://${SB_NS}.servicebus.windows.net/notifications/messages"
+TOKEN=$(az account get-access-token --resource "api://$API_APP_ID" --query accessToken -o tsv)
+AUTH="Authorization: Bearer $TOKEN"
 
 uuid() { powershell -NoProfile -Command '[guid]::NewGuid().ToString()' | tr -d '\r'; }
 check() {
@@ -18,9 +20,9 @@ check "no key" 401 "$code"
 
 echo "== 2. Place an order: APIM -> ingress -> gateway -> order"
 body=$(curl -s -w "\n%{http_code}" -X POST "$APIM_URL/api/v1/orders" \
-  -H "Ocp-Apim-Subscription-Key: $KEY" -H "Content-Type: application/json" \
+  -H "Ocp-Apim-Subscription-Key: $KEY" -H "$AUTH" -H "Content-Type: application/json" \
   -H "Idempotency-Key: $(uuid)" \
-  -d '{"customerId":"CUST-1","currency":"CAD","street":"1 King St W","city":"Toronto","postalCode":"M5H 1A1","country":"CA","lines":[{"sku":"SKU-1","quantity":1,"unitPrice":29.99}]}')
+  -d '{"currency":"CAD","street":"1 King St W","city":"Toronto","postalCode":"M5H 1A1","country":"CA","lines":[{"sku":"SKU-1","quantity":1,"unitPrice":29.99}]}')
 code=$(tail -n1 <<<"$body")
 check "place order" 202 "$code"
 ORDER_ID=$(sed -n 's/.*"orderId":"\([^"]*\)".*/\1/p' <<<"$body" | head -n1)
@@ -29,7 +31,7 @@ echo "      orderId=$ORDER_ID"
 echo "== 3. Order reaches Confirmed (polls up to 60 s)"
 status=""
 for _ in $(seq 1 20); do
-  status=$(curl -s -H "Ocp-Apim-Subscription-Key: $KEY" "$APIM_URL/api/v1/orders/$ORDER_ID/status")
+  status=$(curl -s -H "Ocp-Apim-Subscription-Key: $KEY" -H "$AUTH" "$APIM_URL/api/v1/orders/$ORDER_ID/status")
   grep -q -E 'Confirmed|Cancelled' <<<"$status" && break
   sleep 3
 done
@@ -39,7 +41,7 @@ grep -q Confirmed <<<"$status" && echo "PASS  saga confirmed" || echo "FAIL  sag
 echo "== 4. Rate limit: 40 requests, expect 429s near the end"
 codes=""
 for _ in $(seq 1 40); do
-  codes+="$(curl -s -o /dev/null -w "%{http_code}" -H "Ocp-Apim-Subscription-Key: $KEY" \
+  codes+="$(curl -s -o /dev/null -w "%{http_code}" -H "Ocp-Apim-Subscription-Key: $KEY" -H "$AUTH" \
     "$APIM_URL/api/v1/orders/$ZERO/status") "
 done
 echo "      $codes"
@@ -75,11 +77,4 @@ for the test message (not two: the duplicate was dropped), plus lines for order 
 or App Insights -> Logs:
   traces | where message startswith "EMAIL" or message startswith "SMS" | order by timestamp desc
 
-JWT checks: set APIM named value require-jwt=true, wait ~1 min, then:
-  API_APP_ID=\$(az ad app list --display-name orderflow-api --query "[0].appId" -o tsv)
-  curl -s -o /dev/null -w "%{http_code}\n" -H "Ocp-Apim-Subscription-Key: \$KEY" "$APIM_URL/api/v1/orders/$ZERO/status"   # 401
-  TOKEN=\$(az account get-access-token --resource "api://\$API_APP_ID" --query accessToken -o tsv)
-  curl -s -o /dev/null -w "%{http_code}\n" -H "Ocp-Apim-Subscription-Key: \$KEY" -H "Authorization: Bearer \$TOKEN" \\
-    "$APIM_URL/api/v1/orders/$ZERO/status"                                                                             # 404
-Set require-jwt back to false afterwards.
 EOF

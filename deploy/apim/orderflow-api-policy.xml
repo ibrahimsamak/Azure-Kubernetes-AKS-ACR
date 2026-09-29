@@ -17,6 +17,10 @@
                 <header>Authorization</header>
                 <header>Idempotency-Key</header>
                 <header>Ocp-Apim-Subscription-Key</header>
+                <header>traceparent</header>
+                <header>tracestate</header>
+                <header>request-id</header>
+                <header>request-context</header>
             </allowed-headers>
             <expose-headers>
                 <header>Location</header>
@@ -26,23 +30,24 @@
 
         <rate-limit calls="30" renewal-period="60" />
 
-        <choose>
-            <when condition="@("{{require-jwt}}" == "true")">
-                <validate-jwt header-name="Authorization" require-scheme="Bearer"
-                              failed-validation-httpcode="401"
-                              failed-validation-error-message="Missing or invalid access token.">
-                    <openid-config url="https://login.microsoftonline.com/{{tenant-id}}/v2.0/.well-known/openid-configuration" />
-                    <audiences>
-                        <audience>{{api-client-id}}</audience>
-                        <audience>api://{{api-client-id}}</audience>
-                    </audiences>
-                    <issuers>
-                        <issuer>https://login.microsoftonline.com/{{tenant-id}}/v2.0</issuer>
-                        <issuer>https://sts.windows.net/{{tenant-id}}/</issuer>
-                    </issuers>
-                </validate-jwt>
-            </when>
-        </choose>
+        <validate-jwt header-name="Authorization" require-scheme="Bearer"
+                      failed-validation-httpcode="401"
+                      failed-validation-error-message="Missing or invalid access token.">
+            <openid-config url="https://login.microsoftonline.com/{{tenant-id}}/v2.0/.well-known/openid-configuration" />
+            <audiences>
+                <audience>{{api-client-id}}</audience>
+                <audience>api://{{api-client-id}}</audience>
+            </audiences>
+            <issuers>
+                <issuer>https://login.microsoftonline.com/{{tenant-id}}/v2.0</issuer>
+                <issuer>https://sts.windows.net/{{tenant-id}}/</issuer>
+            </issuers>
+            <required-claims>
+                <claim name="scp" match="any" separator=" ">
+                    <value>Orders.ReadWrite</value>
+                </claim>
+            </required-claims>
+        </validate-jwt>
 
         <set-header name="X-Correlation-Id" exists-action="skip">
             <value>@(context.RequestId.ToString())</value>

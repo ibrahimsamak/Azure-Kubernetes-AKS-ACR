@@ -33,3 +33,8 @@ export LAW="log-orderflow-${SUFFIX}"
 export APPI="appi-orderflow-${SUFFIX}"
 export APPI_WEB="appi-orderflow-web-${SUFFIX}"
 export ACTION_GROUP="ag-orderflow-oncall"
+
+export TENANT_ID="${TENANT_ID:-345f3725-4a76-4514-b265-f36d116154cc}"
+export API_APP_ID="${API_APP_ID:-28b01914-9a4a-4555-8626-d516a358da1b}"
+export SPA_APP_ID="${SPA_APP_ID:-74acbc9d-f79e-4499-b669-19392d3dfdde}"
+export INVENTORY_APP_ID="${INVENTORY_APP_ID:-}"

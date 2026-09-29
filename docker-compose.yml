@@ -1,5 +1,6 @@
 x-service-env: &service-env
-  ASPNETCORE_ENVIRONMENT: Production
+  ASPNETCORE_ENVIRONMENT: Local
+  Auth__Mode: "Local"
   ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
   ConnectionStrings__kafka: "kafka:29092"
   Logging__Console__FormatterName: "json"
