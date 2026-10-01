@@ -1,0 +1,31 @@
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: "/"
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    groups:
+      opentelemetry: { patterns: ["OpenTelemetry*", "Azure.Monitor.OpenTelemetry*"] }
+      azure:         { patterns: ["Azure.*", "Microsoft.Azure.*", "Microsoft.Identity.*"] }
+      microsoft:     { patterns: ["Microsoft.*", "System.*"] }
+      testing:       { patterns: ["xunit*", "Testcontainers*", "PactNet*", "Microsoft.NET.Test.Sdk", "coverlet*"] }
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule: { interval: weekly }
+
+  - package-ecosystem: docker
+    directories:
+      - "/src/Services/Order/OrderFlow.Order.Api"
+      - "/src/Services/Inventory/OrderFlow.Inventory.Api"
+      - "/src/Services/Payment/OrderFlow.Payment.Api"
+      - "/src/Services/Notification/OrderFlow.Notification.Api"
+      - "/src/Gateway/OrderFlow.Gateway"
+    schedule: { interval: weekly }
+
+  - package-ecosystem: npm
+    directory: "/web/orderflow-web"
+    schedule: { interval: weekly }
+    groups:
+      angular: { patterns: ["@angular/*", "@angular-devkit/*"] }
+      msal:    { patterns: ["@azure/msal-*"] }
