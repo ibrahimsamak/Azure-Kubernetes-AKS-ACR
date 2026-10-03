@@ -55,3 +55,7 @@ ingress:
   enabled: false
   className: ""
   path: /api
+
+networkPolicy:
+  enabled: false
+  allowFrom: []

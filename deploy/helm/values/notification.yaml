@@ -1,2 +1,4 @@
 image:
   repository: orderflow/notification-api
+networkPolicy:
+  allowFrom: []
